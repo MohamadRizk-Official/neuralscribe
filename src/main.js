@@ -42,7 +42,7 @@ function onWorkerMessage({ data }) {
     case 'stage': setStep(data.stage); break;
     case 'status': els.statusLine.textContent = data.text; break;
     case 'progress': onProgress(data); break;
-    case 'run-progress': onRunProgress(data); break;
+    case 'language': if (state) state.language = data.language; break;
     case 'complete': onComplete(data); break;
     case 'error': showError(data.message + (data.stack ? '\n\n' + data.stack : '')); break;
   }
@@ -120,19 +120,7 @@ function onProgress(p) {
   }
 }
 
-const runProgress = { asr: null, diar: null };
-function onRunProgress(p) {
-  runProgress[p.part] = p;
-  const bits = [];
-  const a = runProgress.asr;
-  if (a) bits.push(`Transcribing ${Math.min(a.done, a.total)}/${a.total}${state?.duration ? ` (${fmtTime(Math.min(a.seconds || 0, state.duration))} of ${fmtTime(state.duration)})` : ''}`);
-  const d = runProgress.diar;
-  if (d) bits.push(`speakers ${d.done}/${d.total}`);
-  els.statusLine.textContent = bits.join(' · ') + ' — you can leave this tab open in the background.';
-}
-
 async function start(file) {
-  runProgress.asr = runProgress.diar = null;
   currentFile = file;
   bars.clear(); els.downloads.innerHTML = '';
   els.fileName.textContent = file.name;
@@ -178,18 +166,14 @@ function drawWave(pk) {
 }
 
 // ---------- results ----------
-function onComplete({ transcript, segments, ms, device }) {
+function onComplete({ lines, language, ms, device }) {
   setStep('done');
-  const lines = buildLines(transcript.chunks, segments, transcript.text);
   const speakerIds = [...new Set(lines.map((l) => l.speaker))];
   const names = new Map();
   let n = 1;
-  for (const id of speakerIds) {
-    if (id === UNKNOWN) names.set(id, UNKNOWN);
-    else names.set(id, `Speaker ${n++}`);
-  }
-  state = { ...state, lines, names, speakerIds };
-  els.resultsSub.textContent = `${currentFile.name} · ${fmtTime(state.duration)} · ${speakerIds.filter((s) => s !== UNKNOWN).length} speaker(s) · processed in ${(ms / 1000).toFixed(1)}s on ${device === 'webgpu' ? 'GPU' : 'CPU'}`;
+  for (const id of speakerIds) names.set(id, id === UNKNOWN ? UNKNOWN : `Speaker ${n++}`);
+  state = { ...state, lines, names, speakerIds, language };
+  els.resultsSub.textContent = `${currentFile.name} · ${fmtTime(state.duration)} · ${speakerIds.filter((s) => s !== UNKNOWN).length} speaker(s) · processed in ${fmtTime(ms / 1000)} on ${device === 'webgpu' ? 'GPU' : 'CPU'}`;
 
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(currentFile);
@@ -197,67 +181,6 @@ function onComplete({ transcript, segments, ms, device }) {
 
   renderTranscript();
   setTimeout(() => show(els.resultsPanel), 350);
-}
-
-// Attach a speaker to every word, then merge consecutive words from the same speaker.
-function buildLines(chunks, segments, fullText) {
-  if (!chunks?.length) {
-    return [{ start: 0, end: state.duration, speaker: UNKNOWN, text: (fullText || '').trim() }];
-  }
-  const speech = (segments || []).filter((s) => s.label && s.label !== 'NO_SPEAKER');
-
-  const words = chunks.map((c) => {
-    const [s, e] = c.timestamp || [0, 0];
-    const start = s ?? 0;
-    const end = e ?? start + 0.4;
-    return { start, end, text: c.text, speaker: segments ? pickSpeaker(start, end, speech) : 'SPEAKER_00' };
-  });
-
-  // Fill short "Unknown" gaps when the same speaker is on both sides.
-  for (let i = 1; i < words.length - 1; i++) {
-    if (words[i].speaker !== UNKNOWN) continue;
-    let j = i;
-    while (j < words.length && words[j].speaker === UNKNOWN) j++;
-    const before = words[i - 1], after = words[j];
-    if (after && before.speaker === after.speaker && after.start - before.end < 2.5) {
-      for (let k = i; k < j; k++) words[k].speaker = before.speaker;
-    }
-    i = j;
-  }
-
-  // Merge into lines; start a new line on speaker change, long pause, or very long line.
-  const lines = [];
-  for (const w of words) {
-    const last = lines[lines.length - 1];
-    if (last && last.speaker === w.speaker && w.start - last.end < 1.5 && last.text.length < 420) {
-      last.text += w.text;
-      last.end = Math.max(last.end, w.end);
-    } else {
-      lines.push({ start: w.start, end: w.end, speaker: w.speaker, text: w.text });
-    }
-  }
-  return lines.map((l) => ({ ...l, text: l.text.trim() })).filter((l) => l.text);
-}
-
-function pickSpeaker(start, end, speech) {
-  let best = null, bestOverlap = 0;
-  for (const s of speech) {
-    const o = Math.min(end, s.end) - Math.max(start, s.start);
-    if (o > bestOverlap) { bestOverlap = o; best = s; }
-  }
-  if (!best) {
-    // No overlap: accept a segment within 0.3s of the word.
-    let nearest = null, dist = 0.3;
-    const mid = (start + end) / 2;
-    for (const s of speech) {
-      const d = mid < s.start ? s.start - mid : mid > s.end ? mid - s.end : 0;
-      if (d < dist) { dist = d; nearest = s; }
-    }
-    best = nearest;
-  }
-  if (!best) return UNKNOWN;
-  // Overlapping speech is labelled "SPEAKER_00 + SPEAKER_01" — take the first.
-  return best.label.split(' + ')[0];
 }
 
 function renderTranscript() {

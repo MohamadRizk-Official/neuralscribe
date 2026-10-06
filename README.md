@@ -8,8 +8,9 @@ speakers, click any line to play it, and export as `.txt` or `.srt`.
 
 ## How it works
 
-- **Whisper** (OpenAI, via [Transformers.js](https://github.com/huggingface/transformers.js)) turns speech into words with timestamps.
-- **pyannote segmentation 3.0** detects who is speaking when.
+- **pyannote segmentation 3.0** first works out who is speaking when (seconds per hour of audio).
+- The audio is cut into speaker turns (silence is skipped) and **Whisper** (OpenAI, via [Transformers.js](https://github.com/huggingface/transformers.js)) transcribes many turns at once in batches. This is several times faster than sliding a window over the whole file, and every line already has its speaker.
+- With "Auto-detect" the language is detected by the model itself.
 - Both models run inside a Web Worker on your device (WebGPU when available, CPU/WASM otherwise).
   Nothing is uploaded anywhere. Models are downloaded once from Hugging Face and cached by the browser.
 - Short files are decoded by the browser itself. Long recordings (15+ minutes) and unusual formats are
