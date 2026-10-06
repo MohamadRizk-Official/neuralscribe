@@ -12,6 +12,10 @@ speakers, click any line to play it, and export as `.txt` or `.srt`.
 - **pyannote segmentation 3.0** detects who is speaking when.
 - Both models run inside a Web Worker on your device (WebGPU when available, CPU/WASM otherwise).
   Nothing is uploaded anywhere. Models are downloaded once from Hugging Face and cached by the browser.
+- Short files are decoded by the browser itself. Long recordings (15+ minutes) and unusual formats are
+  converted by FFmpeg compiled to WebAssembly (`public/ffmpeg/`, one-time ~32 MB download), so an
+  hour-long voice message works. Speaker detection runs in 4-minute windows that are stitched together,
+  so memory stays flat no matter how long the file is.
 
 ## Run locally
 

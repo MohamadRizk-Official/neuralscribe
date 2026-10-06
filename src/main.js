@@ -42,6 +42,7 @@ function onWorkerMessage({ data }) {
     case 'stage': setStep(data.stage); break;
     case 'status': els.statusLine.textContent = data.text; break;
     case 'progress': onProgress(data); break;
+    case 'run-progress': onRunProgress(data); break;
     case 'complete': onComplete(data); break;
     case 'error': showError(data.message + (data.stack ? '\n\n' + data.stack : '')); break;
   }
@@ -119,7 +120,19 @@ function onProgress(p) {
   }
 }
 
+const runProgress = { asr: null, diar: null };
+function onRunProgress(p) {
+  runProgress[p.part] = p;
+  const bits = [];
+  const a = runProgress.asr;
+  if (a) bits.push(`Transcribing ${Math.min(a.done, a.total)}/${a.total}${state?.duration ? ` (${fmtTime(Math.min(a.seconds || 0, state.duration))} of ${fmtTime(state.duration)})` : ''}`);
+  const d = runProgress.diar;
+  if (d) bits.push(`speakers ${d.done}/${d.total}`);
+  els.statusLine.textContent = bits.join(' · ') + ' — you can leave this tab open in the background.';
+}
+
 async function start(file) {
+  runProgress.asr = runProgress.diar = null;
   currentFile = file;
   bars.clear(); els.downloads.innerHTML = '';
   els.fileName.textContent = file.name;
@@ -129,7 +142,8 @@ async function start(file) {
 
   let decoded;
   try {
-    decoded = await decodeToMono16k(file);
+    const forceFFmpeg = new URLSearchParams(location.search).has('ffmpeg');
+    decoded = await decodeToMono16k(file, (text) => { els.statusLine.textContent = text; }, { forceFFmpeg });
   } catch (err) {
     showError(`Could not decode "${file.name}". This browser may not support that format.\n\n${err.message || err}`);
     return;
