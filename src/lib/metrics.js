@@ -87,3 +87,52 @@ export function termRecall(terms, hypText) {
 }
 
 export const pct = (x) => (x * 100).toFixed(1) + '%';
+
+// Word-level speaker attribution (a word diarization error rate).
+// refTurns: [{ speaker, text }]  hypLines: [{ speaker, text }] (speaker "Unknown" = not attributed)
+// Words are aligned as for WER; each aligned pair compares the hypothesis speaker (mapped 1:1 to the
+// reference speaker it overlaps most) with the true speaker.
+//   wder           share of aligned words given to the wrong person or to Unknown
+//   falseChanges   speaker changes in the hypothesis where the same person kept talking
+//   missedChanges  real speaker changes the hypothesis did not show
+export function speakerAttribution(refTurns, hypLines, opts) {
+  const ref = refTurns.flatMap((t) => words(t.text, opts).map((w) => ({ w, spk: t.speaker })));
+  const hyp = hypLines.flatMap((l) => words(l.text, opts).map((w) => ({ w, spk: l.speaker })));
+  const a = align(ref.map((x) => x.w), hyp.map((x) => x.w));
+  const pairs = [];
+  let i = 0, j = 0;
+  for (const o of a.ops) {
+    if (o.op === 'ok' || o.op === 'sub') pairs.push([ref[i++], hyp[j++]]);
+    else if (o.op === 'del') i++;
+    else j++;
+  }
+  const co = new Map();
+  for (const [r, h] of pairs) {
+    if (h.spk === 'Unknown') continue;
+    const k = `${h.spk}\u0000${r.spk}`;
+    co.set(k, (co.get(k) || 0) + 1);
+  }
+  const mapping = new Map();
+  const usedRef = new Set();
+  for (const [k] of [...co].sort((x, y) => y[1] - x[1])) {
+    const [h, r] = k.split('\u0000');
+    if (mapping.has(h) || usedRef.has(r)) continue;
+    mapping.set(h, r);
+    usedRef.add(r);
+  }
+  let errors = 0, unknownWords = 0, falseChanges = 0, missedChanges = 0;
+  pairs.forEach(([r, h], k) => {
+    if (h.spk === 'Unknown') unknownWords++;
+    if (h.spk === 'Unknown' || mapping.get(h.spk) !== r.spk) errors++;
+    if (k === 0) return;
+    const [pr, ph] = pairs[k - 1];
+    if (pr.spk === r.spk && ph.spk !== h.spk) falseChanges++;
+    if (pr.spk !== r.spk && ph.spk === h.spk) missedChanges++;
+  });
+  return {
+    wder: pairs.length ? errors / pairs.length : 0,
+    errors, words: pairs.length, unknownWords, falseChanges, missedChanges,
+    hypSpeakers: new Set(hyp.map((x) => x.spk).filter((s) => s !== 'Unknown')).size,
+    refSpeakers: new Set(ref.map((x) => x.spk)).size,
+  };
+}

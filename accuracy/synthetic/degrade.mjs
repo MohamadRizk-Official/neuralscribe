@@ -1,6 +1,6 @@
 // Creates degraded copies of clean synthetic recordings (see manifest.json "variants").
 // Deterministic (seeded noise), so results are reproducible run to run.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -97,10 +97,19 @@ for (const v of manifest.variants) {
     if (v.echo) y = echo(y, rate);
     if (v.noiseSnrDb != null) y = addNoise(y, rate, v.noiseSnrDb, v.rumble);
     if (v.gainDb != null) y = y.map((s) => s * 10 ** (v.gainDb / 20));
+    // microphone level changing for part of the recording: [startSec, endSec, gainDb] with 0.3 s ramps
+    for (const [s0, s1, db] of v.gainSegments || []) {
+      const g = 10 ** (db / 20), a = Math.floor(s0 * rate), b = Math.floor(s1 * rate), ramp = Math.floor(0.3 * rate);
+      for (let i = Math.max(0, a - ramp); i < Math.min(y.length, b + ramp); i++) {
+        const k = i < a ? (i - (a - ramp)) / ramp : i > b ? 1 - (i - b) / ramp : 1;
+        y[i] *= 1 + (g - 1) * k;
+      }
+    }
     y = y.map((s) => Math.max(-1, Math.min(1, s))); // hard clip like a real ADC
     const name = `${id}__${v.suffix}`;
     writeWav(join(out, `${name}.wav`), y, rate);
     writeFileSync(join(out, `${name}.ref.txt`), readFileSync(join(out, `${id}.ref.txt`)));
+    if (existsSync(join(out, `${id}.turns.json`))) writeFileSync(join(out, `${name}.turns.json`), readFileSync(join(out, `${id}.turns.json`)));
     const meta = JSON.parse(readFileSync(join(out, `${id}.meta.json`), 'utf8').replace(/^﻿/, ''));
     writeFileSync(join(out, `${name}.meta.json`), JSON.stringify({ ...meta, category: v.category, degradedFrom: id }, null, 2));
     console.log(`wrote ${name}`);

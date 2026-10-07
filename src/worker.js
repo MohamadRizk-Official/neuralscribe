@@ -44,6 +44,23 @@ const LINK_DIST = 0.7; // average-linkage cosine distance at which voices stop b
 const ASSIGN_SIM = 0.25; // short/rare voices join the closest speaker only if at least this cosine-similar
 const MIN_SPEAKER_S = 15; // a "speaker" needs this much speech (or 1% of the file) to count as a real person
 
+// Context smoothing of speaker labels (see smoothSpeakers)
+const SMOOTH_JOIN_GAP_S = 0.3; // same-speaker speech closer than this is one run
+const SMOOTH_CONTEXT_GAP_S = 1.5; // a neighbouring run within this gap counts as context
+const SMOOTH_MAX_S = 1.5; // a different-speaker run this short, inside one person's speech, is re-checked
+const SMOOTH_MAX_UNKNOWN_S = 3; // Unknown runs up to this long are re-checked
+const SMOOTH_EMB_MIN_S = 0.25; // shortest stretch that gets its own voice fingerprint for the check
+const SMOOTH_MARGIN = 0.1; // another speaker must be this much more similar (cosine) to win
+const OTHER_VOICE_SIM = 0.15; // below this similarity to the surrounding speaker = clearly another voice
+const CORROBORATE_MIN_S = 0.5; // a lone anomaly shorter than this needs a recurring voice to stay separate
+const K_SPLIT_MIN_DIST = 0.5; // with a chosen speaker count, only split groups this far apart (cosine distance)
+const NEW_VOICE_MIN_S = 1.5; // a voice found only in short moments needs at least this much speech in total…
+const NEW_VOICE_MIN_SHARE = 0.005; // …and at least 0.5% of all speech to become a new speaker (Auto)
+const NEW_VOICE_COHESION = 0.5; // each of its moments must be this similar (cosine) to the group's average voice
+const NEW_VOICE_RECUR_N = 3; // …or the voice recurs at least this many times
+const NEW_VOICE_RECUR_S = 1.0; // …adding up to at least this much speech
+const NEW_VOICE_RECUR_COHESION = 0.6; // …and its moments agree with each other at least this well
+
 // Turn building
 const MIN_TURN_S = 0.3; // ignore blips shorter than this
 const MERGE_GAP_S = 1.5; // join same-speaker speech separated by less than this
@@ -279,22 +296,30 @@ function clipForVoice(audio, segs) {
   return out;
 }
 
-async function embedVoices(audio, items) {
-  const todo = items.filter((it) => it.dur >= EMB_MIN_S);
+// Voice fingerprints for arbitrary stretches of audio (each entry = list of {start,end} segments).
+async function embedClips(audio, segLists, onProgress) {
+  const out = new Array(segLists.length).fill(null);
   const batch = embDevice === 'webgpu' ? 16 : 4;
-  for (let i = 0; i < todo.length; i += batch) {
-    const group = todo.slice(i, i + batch);
+  for (let i = 0; i < segLists.length; i += batch) {
+    const group = segLists.slice(i, i + batch);
     const feats = [];
-    for (const it of group) feats.push((await embProcessor(clipForVoice(audio, it.segs))).input_features);
+    for (const segs of group) feats.push((await embProcessor(clipForVoice(audio, segs))).input_features);
     const [, F, D] = feats[0].dims;
     const data = new Float32Array(group.length * F * D);
     feats.forEach((f, k) => data.set(f.data, k * F * D));
-    const out = await embModel({ input_features: new Tensor('float32', data, [group.length, F, D]) });
-    const embs = out.last_hidden_state ?? out.embeddings ?? Object.values(out)[0];
+    const res = await embModel({ input_features: new Tensor('float32', data, [group.length, F, D]) });
+    const embs = res.last_hidden_state ?? res.embeddings ?? Object.values(res)[0];
     const dim = embs.dims[1];
-    group.forEach((it, k) => { it.emb = normalize(embs.data.slice(k * dim, (k + 1) * dim)); });
-    status(`Recognizing voices… ${Math.round(((i + group.length) / todo.length) * 100)}%`);
+    group.forEach((_, k) => { out[i + k] = normalize(embs.data.slice(k * dim, (k + 1) * dim)); });
+    onProgress?.(i + group.length, segLists.length);
   }
+  return out;
+}
+
+async function embedVoices(audio, items) {
+  const todo = items.filter((it) => it.dur >= EMB_MIN_S);
+  const embs = await embedClips(audio, todo.map((it) => it.segs), (done, total) => status(`Recognizing voices… ${Math.round((done / total) * 100)}%`));
+  todo.forEach((it, k) => { it.emb = embs[k]; });
 }
 
 function normalize(v) {
@@ -312,54 +337,81 @@ const dot = (a, b) => {
 };
 
 // ---------- 3. clustering ----------
-// Average-linkage agglomerative clustering on cosine distance. On real meetings this is far more
-// stable than centroid linkage, which tends to snowball everything into one giant cluster.
-// Phase 1 merges until the closest clusters are LINK_DIST apart. If the user said how many people
-// there are, phase 2 keeps merging the closest *substantial* clusters until that many remain
-// (tiny outlier clusters are ignored there — they get folded in or marked Unknown afterwards).
+// Average-linkage agglomerative clustering on cosine distance (far more stable on real meetings than
+// centroid linkage, which snowballs everything into one cluster).
+//   Auto: merge until the closest clusters are LINK_DIST apart.
+//   N speakers: walk the full merge tree and stop where N *substantial* clusters exist (so asking
+//   for more people than the threshold would find still splits them), then merge the closest
+//   substantial clusters down to N. Tiny outlier clusters are folded in or handled afterwards.
 function clusterVoices(items, numSpeakers, minSpeakerS) {
   const pts = items.filter((it) => it.emb && it.dur >= CLUSTER_MIN_S);
   const n = pts.length;
   if (!n) return [];
   const dim = pts[0].emb.length;
+  const D0 = new Float32Array(n * n);
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) D0[i * n + j] = D0[j * n + i] = 1 - dot(pts[i].emb, pts[j].emb);
 
-  const D = new Float32Array(n * n);
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) D[i * n + j] = D[j * n + i] = 1 - dot(pts[i].emb, pts[j].emb);
-  const size = new Int32Array(n).fill(1);
-  const dur = Float64Array.from(pts, (p) => p.dur);
-  const members = pts.map((p) => [p]);
-  const alive = new Uint8Array(n).fill(1);
-  const best = new Int32Array(n).fill(-1);
-  const bestD = new Float32Array(n).fill(Infinity);
-  const refreshBest = (i) => {
-    best[i] = -1;
-    bestD[i] = Infinity;
-    for (let j = 0; j < n; j++) if (j !== i && alive[j] && D[i * n + j] < bestD[i]) { bestD[i] = D[i * n + j]; best[i] = j; }
-  };
-  for (let i = 0; i < n; i++) refreshBest(i);
-
-  const merge = (i, j) => {
-    // Lance–Williams update for average linkage
-    for (let k = 0; k < n; k++) {
-      if (!alive[k] || k === i || k === j) continue;
-      D[i * n + k] = D[k * n + i] = (size[i] * D[i * n + k] + size[j] * D[j * n + k]) / (size[i] + size[j]);
+  function run(stopAt) {
+    const D = Float32Array.from(D0);
+    const size = new Int32Array(n).fill(1);
+    const dur = Float64Array.from(pts, (p) => p.dur);
+    const members = pts.map((p) => [p]);
+    const alive = new Uint8Array(n).fill(1);
+    const best = new Int32Array(n).fill(-1);
+    const bestD = new Float32Array(n).fill(Infinity);
+    let big = 0;
+    for (let i = 0; i < n; i++) if (dur[i] >= minSpeakerS) big++;
+    const history = [{ dist: 0, big }];
+    const refreshBest = (i) => {
+      best[i] = -1;
+      bestD[i] = Infinity;
+      for (let j = 0; j < n; j++) if (j !== i && alive[j] && D[i * n + j] < bestD[i]) { bestD[i] = D[i * n + j]; best[i] = j; }
+    };
+    for (let i = 0; i < n; i++) refreshBest(i);
+    const merge = (i, j) => {
+      for (let k = 0; k < n; k++) {
+        if (!alive[k] || k === i || k === j) continue;
+        D[i * n + k] = D[k * n + i] = (size[i] * D[i * n + k] + size[j] * D[j * n + k]) / (size[i] + size[j]);
+      }
+      big -= (dur[i] >= minSpeakerS) + (dur[j] >= minSpeakerS);
+      size[i] += size[j];
+      dur[i] += dur[j];
+      big += dur[i] >= minSpeakerS;
+      members[i].push(...members[j]);
+      alive[j] = 0;
+      // average linkage never brings a cluster closer, so only neighbours of i or j need a refresh
+      for (let k = 0; k < n; k++) if (alive[k] && (k === i || best[k] === i || best[k] === j)) refreshBest(k);
+    };
+    let steps = 0;
+    for (;;) {
+      if (stopAt != null && steps >= stopAt) break;
+      let i = -1;
+      for (let k = 0; k < n; k++) if (alive[k] && best[k] >= 0 && (i < 0 || bestD[k] < bestD[i])) i = k;
+      if (i < 0) break;
+      if (stopAt == null && bestD[i] > LINK_DIST) break; // threshold (Auto) result
+      const d = bestD[i];
+      merge(i, best[i]);
+      steps++;
+      history.push({ dist: d, big });
     }
-    size[i] += size[j];
-    dur[i] += dur[j];
-    members[i].push(...members[j]);
-    alive[j] = 0;
-    // average linkage never brings a cluster closer, so only neighbours of i or j need a refresh
-    for (let k = 0; k < n; k++) if (alive[k] && (k === i || best[k] === i || best[k] === j)) refreshBest(k);
-  };
-
-  for (;;) {
-    let i = -1;
-    for (let k = 0; k < n; k++) if (alive[k] && best[k] >= 0 && (i < 0 || bestD[k] < bestD[i])) i = k;
-    if (i < 0 || bestD[i] > LINK_DIST) break;
-    merge(i, best[i]);
+    return { D, dur, members, alive, history, merge };
   }
 
+  const countBig = (st) => { let k = 0; for (let i = 0; i < n; i++) if (st.alive[i] && st.dur[i] >= minSpeakerS) k++; return k; };
+  let state = run(null); // threshold result (Auto)
+  if (numSpeakers && countBig(state) < numSpeakers) {
+    // Fewer people than chosen: look deeper in the merge tree for the point where N substantial
+    // clusters exist — but only accept it if the split being undone is a real voice difference
+    // (one person's voice must never be cut in two just to reach the number). Otherwise keep the
+    // Auto result; a recurring different voice can still become the missing person later.
+    const { history } = run(Infinity);
+    let stop = -1;
+    history.forEach((h, s) => { if (h.big >= numSpeakers) stop = s; });
+    const undone = stop >= 0 ? history[stop + 1] : null;
+    if (undone && undone.dist >= K_SPLIT_MIN_DIST) state = run(stop);
+  }
   if (numSpeakers) {
+    const { D, dur, alive, merge } = state;
     for (;;) {
       const big = [];
       for (let k = 0; k < n; k++) if (alive[k] && dur[k] >= minSpeakerS) big.push(k);
@@ -372,22 +424,25 @@ function clusterVoices(items, numSpeakers, minSpeakerS) {
 
   const clusters = [];
   for (let i = 0; i < n; i++) {
-    if (!alive[i]) continue;
+    if (!state.alive[i]) continue;
     const c = new Float32Array(dim);
-    for (const p of members[i]) for (let d = 0; d < dim; d++) c[d] += p.emb[d];
-    clusters.push({ members: members[i], centroid: normalize(c), dur: dur[i] });
+    for (const p of state.members[i]) for (let d = 0; d < dim; d++) c[d] += p.emb[d];
+    clusters.push({ members: state.members[i], centroid: normalize(c), dur: state.dur[i] });
   }
   return clusters;
 }
 
-// Gives every (chunk, local voice) a global speaker label (or Unknown).
+// Gives every (chunk, local voice) a global speaker label (or Unknown), plus each speaker's voice centroid.
 function labelVoices(items, numSpeakers) {
+  // A "person" needs a meaningful share of the speech: 15 s, but at most 15% of a short recording
+  // (otherwise someone who speaks 8 s of a 40 s call could never count) and at least 1% of a long one.
   const totalSpeech = items.reduce((t, it) => t + it.dur, 0);
-  const minSpeakerS = Math.max(MIN_SPEAKER_S, totalSpeech * 0.01);
+  let minSpeakerS = Math.max(Math.min(MIN_SPEAKER_S, totalSpeech * 0.15), totalSpeech * 0.01);
+  if (numSpeakers > 1) minSpeakerS = Math.min(minSpeakerS, totalSpeech / (numSpeakers * 3));
   const clusters = clusterVoices(items, numSpeakers, minSpeakerS);
 
   // Tiny clusters are usually a real speaker on a bad-mic moment (or a cough / laugh). Fold them
-  // into the closest real speaker when similar enough; otherwise they really are an unknown voice.
+  // into the closest real speaker when similar enough; otherwise context smoothing decides later.
   let big = clusters.filter((c) => c.dur >= minSpeakerS);
   let small = clusters.filter((c) => c.dur < minSpeakerS);
   if (!big.length) { big = clusters; small = []; }
@@ -405,7 +460,7 @@ function labelVoices(items, numSpeakers) {
   }
   for (const it of items) {
     if (label.has(it.key)) continue;
-    if (!it.emb) continue; // resolved below from neighbouring chunks
+    if (!it.emb) continue; // resolved below from neighbouring chunks, then by context smoothing
     const [bi, bs] = nearest(it.emb);
     label.set(it.key, bs >= ASSIGN_SIM ? bi : -1);
   }
@@ -440,13 +495,171 @@ function labelVoices(items, numSpeakers) {
   }
   const names = new Map();
   for (const [key, ci] of label) names.set(key, ci >= 0 ? order.get(ci) : UNKNOWN);
-  return names;
+  const centroids = new Map();
+  for (const [ci, name] of order) centroids.set(name, big[ci].centroid);
+  return { names, centroids };
+}
+
+// ---------- 3b. context smoothing ----------
+// The segmentation model works on 10 s windows and can give a single word its own "voice" when the
+// speaker's pitch, loudness or delivery changes for a moment. Such a stretch is often too short to
+// fingerprint at first, so it ended up as "Unknown" (or as a different speaker) mid-sentence.
+// Here every short, isolated run is re-checked with a fingerprint of that exact stretch and its
+// neighbours: a moment sandwiched inside one person's speech stays with that person unless its voice
+// clearly matches someone else. A different voice that recurs (e.g. "yeah", "right" from a listener)
+// is kept as its own speaker, so genuine interjections survive.
+async function smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpeech) {
+  const isReal = (s) => s && s !== UNKNOWN;
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const runs = [];
+  for (const s of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && last.speaker === s.speaker && s.start - last.end <= SMOOTH_JOIN_GAP_S) {
+      last.end = Math.max(last.end, s.end);
+      last.segs.push(s);
+    } else runs.push({ speaker: s.speaker, start: s.start, end: s.end, segs: [s] });
+  }
+  const near = (a, b) => a && b && Math.max(a.start, b.start) - Math.min(a.end, b.end) <= SMOOTH_CONTEXT_GAP_S;
+
+  const cands = [];
+  runs.forEach((r, i) => {
+    const dur = r.end - r.start;
+    const prev = near(runs[i - 1], r) ? runs[i - 1] : null;
+    const next = near(runs[i + 1], r) ? runs[i + 1] : null;
+    const sandwich = prev && next && isReal(prev.speaker) && prev.speaker === next.speaker && prev.speaker !== r.speaker ? prev.speaker : null;
+    if (r.speaker === UNKNOWN ? dur <= SMOOTH_MAX_UNKNOWN_S : sandwich && dur <= SMOOTH_MAX_S) cands.push({ r, prev, next, sandwich, dur });
+  });
+  if (!cands.length) return { segments, stats: { candidates: 0, reassigned: 0, newSpeakers: 0 } };
+
+  const withEmb = cands.filter((c) => c.dur >= SMOOTH_EMB_MIN_S);
+  const embs = await embedClips(audio, withEmb.map((c) => c.r.segs));
+  withEmb.forEach((c, k) => { c.emb = embs[k]; });
+
+  const sim = (emb, spk) => (centroids.has(spk) ? dot(emb, centroids.get(spk)) : -1);
+  const bestKnown = (emb, except) => {
+    let spk = null, s = -Infinity;
+    for (const [name, cen] of centroids) {
+      if (name === except) continue;
+      const v = dot(emb, cen);
+      if (v > s) { s = v; spk = name; }
+    }
+    return [spk, s];
+  };
+  const fallback = (c) => c.sandwich || nearestNeighbour(c);
+  function nearestNeighbour(c) {
+    const opts = [c.prev, c.next].filter((x) => x && isReal(x.speaker));
+    if (!opts.length) return null;
+    opts.sort((a, b) => Math.max(a.start - c.r.end, c.r.start - a.end) - Math.max(b.start - c.r.end, c.r.start - b.end));
+    return opts[0].speaker;
+  }
+
+  let reassigned = 0;
+  const pending = [];
+  const assign = (c, spk) => { if (spk && spk !== c.r.speaker) { c.r.speaker = spk; reassigned++; } };
+  for (const c of cands) {
+    if (c.sandwich) {
+      if (!c.emb) { assign(c, c.sandwich); continue; } // too short to judge: context wins
+      const simS = sim(c.emb, c.sandwich);
+      if (isReal(c.r.speaker) && sim(c.emb, c.r.speaker) >= simS + SMOOTH_MARGIN) continue; // clearly the other known person
+      const [other, simO] = bestKnown(c.emb, c.sandwich);
+      if (other && simO >= ASSIGN_SIM && simO >= simS + SMOOTH_MARGIN) assign(c, other);
+      else if (simS < OTHER_VOICE_SIM) pending.push(c); // clearly not the surrounding speaker
+      else assign(c, c.sandwich);
+    } else {
+      // Unknown at a speaker change / edge
+      if (!c.emb) {
+        const nb = [c.prev, c.next].filter((x) => x && isReal(x.speaker) && Math.max(x.start - c.r.end, c.r.start - x.end) <= 0.5);
+        if (nb.length === 1 || (nb.length === 2 && nb[0].speaker === nb[1].speaker)) assign(c, nb[0].speaker);
+        continue;
+      }
+      const [spk, s] = bestKnown(c.emb, null);
+      if (spk && s >= ASSIGN_SIM) assign(c, spk);
+      else {
+        const nb = nearestNeighbour(c);
+        if (nb && sim(c.emb, nb) >= OTHER_VOICE_SIM) assign(c, nb);
+        else pending.push(c);
+      }
+    }
+  }
+
+  // Voices that match nobody nearby. Only a *new person* if the evidence is strong: the moments sound
+  // like each other (each close to the group's average voice), unlike every known speaker, recur, and
+  // add up to a real share of the speech. Everything else goes back to its context (if brief) or
+  // stays Unknown — noises, laughs and crosstalk must not become extra speakers.
+  const newVoiceMinS = Math.max(NEW_VOICE_MIN_S, (totalSpeech || 0) * NEW_VOICE_MIN_SHARE);
+  const groupLog = [];
+  function voiceGroups(list) {
+    const groups = [];
+    for (const c of [...list].sort((a, b) => b.dur - a.dur)) {
+      const g = groups.find((g) => dot(normalize(g.reduce((acc, o) => { for (let d = 0; d < acc.length; d++) acc[d] += o.emb[d]; return acc; }, new Float32Array(c.emb.length))), c.emb) >= NEW_VOICE_COHESION);
+      if (g) g.push(c); else groups.push([c]);
+    }
+    return groups.map((g) => {
+      const cen = normalize(g.reduce((acc, o) => { for (let d = 0; d < acc.length; d++) acc[d] += o.emb[d]; return acc; }, new Float32Array(g[0].emb.length)));
+      const cohesion = Math.min(...g.map((o) => dot(o.emb, cen)));
+      const knownSim = Math.max(-1, ...[...centroids.values()].map((k) => dot(cen, k)));
+      const total = g.reduce((t, c) => t + c.dur, 0);
+      groupLog.push({ n: g.length, total: +total.toFixed(2), cohesion: +cohesion.toFixed(3), knownSim: +knownSim.toFixed(3) });
+      return { g, total, cohesion, strong: cohesion >= NEW_VOICE_COHESION && knownSim < OTHER_VOICE_SIM };
+    });
+  }
+  let newSpeakers = 0;
+  if (pending.length) {
+    if (!numSpeakers) {
+      for (const { g, total, cohesion, strong } of voiceGroups(pending)) {
+        // a substantial new voice, or a short one that keeps coming back (e.g. a listener's "yeah", "right")
+        const recurring = g.length >= NEW_VOICE_RECUR_N && total >= NEW_VOICE_RECUR_S && cohesion >= NEW_VOICE_RECUR_COHESION;
+        if (strong && g.length >= 2 && (total >= newVoiceMinS || recurring)) {
+          const name = `SPEAKER_N${newSpeakers++}`;
+          for (const c of g) assign(c, name);
+        } else {
+          for (const c of g) assign(c, c.dur < CORROBORATE_MIN_S ? fallback(c) || UNKNOWN : UNKNOWN);
+        }
+      }
+    } else {
+      // A chosen count: if fewer people were found than chosen, a recurring (or long enough) voice that
+      // matches nobody becomes one of the missing speakers; otherwise it joins the closest known person.
+      let room = Math.max(0, numSpeakers - centroids.size);
+      const groups = voiceGroups(pending).sort((a, b) => b.total - a.total);
+      for (const { g, total, strong } of groups) {
+        // the user said more people are present, so a coherent unfamiliar voice may fill a missing slot
+        if (room > 0 && strong && (g.length >= 2 || total >= CORROBORATE_MIN_S)) {
+          const name = `SPEAKER_N${newSpeakers++}`;
+          room--;
+          for (const c of g) assign(c, name);
+          continue;
+        }
+        for (const c of g) {
+          const [spk, s] = bestKnown(c.emb, null);
+          assign(c, spk && s >= OTHER_VOICE_SIM ? spk : c.dur < CORROBORATE_MIN_S ? fallback(c) : spk || UNKNOWN);
+        }
+      }
+    }
+  }
+
+  for (const r of runs) for (const s of r.segs) s.speaker = r.speaker;
+  return { segments, stats: { candidates: cands.length, reassigned, newSpeakers, pending: pending.length, groups: groupLog.slice(0, 20) } };
 }
 
 async function diarize(audio, numSpeakers) {
   status('Finding speech…');
   const chunks = await segmentChunks(audio);
   lap('segmentation');
+
+  // speech the segmentation model didn't attribute (≥ 1 s of clearly loud audio) — may be a laugh,
+  // a missed word or noise; it enters smoothing as Unknown instead of being dropped
+  const rms = frameEnergy(audio);
+  const rawSpeech = [];
+  chunks.forEach((chunk) => { for (const s of chunk.segs) if (parts(s.label).length) rawSpeech.push({ start: s.start, end: s.end }); });
+  rawSpeech.sort((a, b) => a.start - b.start);
+  const fills = [];
+  for (const r of energyRuns(rms)) for (const g of subtract(r, rawSpeech)) fills.push(g);
+
+  // One person: speaker identity is known, so every bit of speech belongs to them.
+  if (numSpeakers === 1) {
+    const segments = [...rawSpeech, ...fills].map((s) => ({ ...s, speaker: 'SPEAKER_00' }));
+    return { segments, stats: { mode: 'single' } };
+  }
 
   const items = collectVoices(audio, chunks);
   status('Recognizing voices…');
@@ -455,7 +668,7 @@ async function diarize(audio, numSpeakers) {
 
   if (debugVoices) post({ type: 'debug', voices: items.map((it) => ({ key: it.key, chunk: it.chunk, dur: it.dur, emb: it.emb ? Array.from(it.emb) : null })) });
   status('Grouping voices into speakers…');
-  const names = labelVoices(items, numSpeakers);
+  const { names, centroids } = labelVoices(items, numSpeakers);
   lap('clustering');
 
   const segments = [];
@@ -466,7 +679,13 @@ async function diarize(audio, numSpeakers) {
       segments.push({ start: s.start, end: s.end, speaker: names.get(`${c}|${local}`) ?? UNKNOWN });
     }
   });
-  return segments;
+  for (const f of fills) segments.push({ ...f, speaker: UNKNOWN });
+
+  status('Checking speaker changes…');
+  const totalSpeech = segments.reduce((t, s) => t + (s.speaker === UNKNOWN ? 0 : s.end - s.start), 0);
+  const smoothed = await smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpeech);
+  lap(`smoothing ${JSON.stringify(smoothed.stats)}`);
+  return { segments: smoothed.segments, stats: smoothed.stats };
 }
 
 // ---------- 4. turns ----------
@@ -851,8 +1070,9 @@ self.addEventListener('message', async (e) => {
 
     lap0.t = performance.now();
     let segments = null;
+    let diarStats = null;
     post({ type: 'stage', stage: 'speakers' });
-    if (wantDiarize) segments = await diarize(audio, numSpeakers);
+    if (wantDiarize) ({ segments, stats: diarStats } = await diarize(audio, numSpeakers));
     else status('Detecting speech…');
 
     const turns = buildTurns(audio, segments);
@@ -936,6 +1156,7 @@ self.addEventListener('message', async (e) => {
           return v.length ? { min: +v[0].toFixed(3), p10: +v[Math.floor(v.length * 0.1)].toFixed(3), median: +v[v.length >> 1].toFixed(3), maxCompression: +c[0].toFixed(2) } : null;
         })(),
         preprocessing: prep,
+        speakers: diarStats,
       },
     });
   } catch (err) {

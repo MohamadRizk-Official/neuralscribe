@@ -32,8 +32,23 @@ measurement: 1.0 % vs 0.9 % WER for the 1.6 GB fp16 version on the synthetic set
 2. **Preprocess a working copy** (same length, so every timestamp still maps 1:1 to the original): remove DC offset,
    70 Hz high-pass (rumble), normalise speech to ≈ −20 dBFS (max +24 dB, peaks soft-limited). No denoising.
 3. **Find speech + speakers** — pyannote segmentation 3.0 on 10 s chunks, WeSpeaker ResNet34 voice fingerprints,
-   average-linkage clustering across the whole file (or exactly *N* speakers if chosen). Voices too brief to
-   fingerprint are labelled **Unknown**. With speaker labels off, an energy-based detector finds speech instead.
+   average-linkage clustering across the whole file (or exactly *N* speakers if chosen). With speaker labels off,
+   an energy-based detector finds speech instead.
+   - **Expected speakers = 1**: every speech region is that one speaker; no voice comparison is done, so pitch,
+     whisper, laughter or a louder word can never create a second speaker. Silence/noise stays non-speech.
+   - **Context smoothing** (`smoothSpeakers` in `src/worker.js`): short pieces are re-checked against their
+     neighbours. Candidates are Unknown pieces ≤ 3 s and pieces ≤ 1.5 s that sit between two turns of the *same*
+     other speaker (each neighbour within 1.5 s). Pieces ≥ 0.25 s get a voice fingerprint; a piece keeps its own
+     label only if it matches that voice at least 0.10 (cosine) better than the surrounding speaker — so a genuine
+     "yeah" from another person survives, while a pitch-shifted word of the main speaker rejoins them. Pieces too
+     short to fingerprint take the surrounding speaker. Unknown pieces go to the closest known voice (similarity
+     ≥ 0.25), else a neighbour within 0.5 s (no fingerprint) or one whose voice is at least loosely similar (≥ 0.15).
+   - **New voices** (Auto): pieces unlike every known speaker (< 0.15) are grouped by fingerprint (≥ 0.50 to the
+     group). A group becomes a new speaker if it has ≥ 2 pieces and ≥ max(1.5 s, 0.5 % of the speech), or ≥ 3
+     pieces totalling ≥ 1 s that are very consistent (≥ 0.60) — the typical pattern of short interjections.
+     With a chosen speaker count, such groups fill only the missing speaker slots.
+   - **Unknown** is kept only where the evidence is genuinely insufficient: a voice ≥ 0.5 s that matches no
+     speaker and no consistent group. It is never hidden in the transcript.
 4. **Chunk** into speaker turns (silence skipped). Turns longer than 27.5 s are split at the quietest 300 ms between
    16 s and 27.5 s; if even that is speech, both pieces share 1 s of audio and the words transcribed twice are removed
    afterwards (`src/engine/merge.js`). Every segment keeps its original start/end time.
@@ -68,7 +83,8 @@ See [accuracy/README.md](accuracy/README.md) for measuring accuracy on real reco
 - Speaker timeline — click anywhere to jump there; click any timestamp or paragraph to play from there
 - Rename speakers; click the name above any paragraph to fix a wrong label; merge two speakers
 - Search (`/` to focus, Enter / Shift+Enter to step through matches)
-- Player: space to play/pause, ← / → to skip, speed control, auto-follow
+- Player: space to play/pause, ← / → to skip, speed control, volume slider + mute (`M`, remembered for the
+  browser session), auto-follow. Volume only affects playback — transcription uses its own decoded copy of the file.
 - Export as .txt or .srt
 
 ## Accounts & saved transcripts (Supabase)

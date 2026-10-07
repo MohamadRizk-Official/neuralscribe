@@ -158,6 +158,117 @@
           "for next week please read chapter four about muscle architecture and pay special attention to the difference between parallel and pennate fibers because we will use those ideas when we analyze running and jumping in the lab"
         ]
       ]
+    },
+    {
+      "id": "one_speaker_pitch_word",
+      "category": "speaker-consistency",
+      "speakers": 1,
+      "note": "Regression test for a real report: one person, one word said at a higher pitch must stay with Speaker 1.",
+      "lines": [
+        [
+          "A",
+          "So I looked at the proposal again last night and I have a few thoughts about the budget."
+        ],
+        [
+          "A",
+          "Honestly I think this whole plan is a little too much and probably a little bit expensive for a small team like ours.",
+          "Honestly I think this whole plan is a little too <prosody pitch='x-high' volume='x-loud' rate='slow'>much</prosody> and probably a little bit expensive for a small team like ours."
+        ],
+        [
+          "A",
+          "If we cut the travel costs and delay the second hire, it could work, but we should talk about it on Monday."
+        ]
+      ]
+    },
+    {
+      "id": "one_speaker_variations",
+      "category": "speaker-consistency",
+      "speakers": 1,
+      "note": "One person changing delivery: whisper, raised voice, laughing, soft speech, pitch change, emphasis.",
+      "lines": [
+        [
+          "A",
+          "Okay, let me explain how the new schedule works for the next three weeks."
+        ],
+        [
+          "A",
+          "Between you and me, the manager is not happy about it.",
+          "<prosody volume='x-soft' rate='slow'>Between you and me, the manager is not happy about it.</prosody>"
+        ],
+        [
+          "A",
+          "But this part is really important, so please listen carefully!",
+          "<prosody volume='x-loud' pitch='high'>But this part is really important, so please listen carefully!</prosody>"
+        ],
+        [
+          "A",
+          "Ha ha ha, I know, I know, it sounds funny when I say it like that.",
+          "<prosody pitch='x-high' rate='fast'>Ha ha ha,</prosody> I know, I know, it sounds funny when I say it like that."
+        ],
+        [
+          "A",
+          "Anyway, the first week is mostly training and setting up the new tools.",
+          "<prosody volume='soft'>Anyway, the first week is mostly training and setting up the new tools.</prosody>"
+        ],
+        [
+          "A",
+          "Then in the second week we start testing with real customers.",
+          "<prosody pitch='x-low'>Then in the second week we start testing with real customers.</prosody>"
+        ],
+        [
+          "A",
+          "And the third week is the absolutely critical launch week.",
+          "And the third week is the <emphasis level='strong'>absolutely</emphasis> critical launch week."
+        ],
+        [
+          "A",
+          "That is everything for today, thank you for listening."
+        ]
+      ]
+    },
+    {
+      "id": "two_speakers_interjections",
+      "category": "two-speakers",
+      "speakers": 2,
+      "note": "Genuine short interjections from a second person must stay a different speaker.",
+      "lines": [
+        [
+          "A",
+          "So the first thing we noticed in the data is that most users open the app in the morning, usually before nine."
+        ],
+        [
+          "B",
+          "Right."
+        ],
+        [
+          "A",
+          "And when they do, they almost always go straight to the calendar view instead of the inbox."
+        ],
+        [
+          "B",
+          "Yeah."
+        ],
+        [
+          "A",
+          "Which means the morning summary should probably live on the calendar screen, not in a separate tab."
+        ],
+        [
+          "B",
+          "Okay."
+        ],
+        [
+          "A",
+          "We also saw that people who use the summary come back about twice as often during the week."
+        ],
+        [
+          "B",
+          "Exactly."
+        ],
+        [
+          "A",
+          "So my recommendation is to move it there in the next release and measure again after a month."
+        ]
+      ]
     }
   ],
   "variants": [
@@ -228,6 +339,20 @@
       ],
       "noiseSnrDb": 3,
       "gainDb": -30
+    },
+    {
+      "suffix": "volume_dip",
+      "category": "speaker-consistency",
+      "from": [
+        "one_speaker_variations"
+      ],
+      "gainSegments": [
+        [
+          9,
+          17,
+          -18
+        ]
+      ]
     }
   ]
 }

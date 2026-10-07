@@ -10,7 +10,7 @@ const items = readdirSync(dir)
   .filter((f) => AUDIO.has(extname(f).toLowerCase()))
   .map((f) => {
     const name = basename(f, extname(f));
-    return { name, audio: f, ref: existsSync(join(dir, `${name}.ref.txt`)) ? `${name}.ref.txt` : null, meta: existsSync(join(dir, `${name}.meta.json`)) ? `${name}.meta.json` : null };
+    return { name, audio: f, ref: existsSync(join(dir, `${name}.ref.txt`)) ? `${name}.ref.txt` : null, meta: existsSync(join(dir, `${name}.meta.json`)) ? `${name}.meta.json` : null, turns: existsSync(join(dir, `${name}.turns.json`)) ? `${name}.turns.json` : null };
   })
   .filter((it) => it.ref)
   .sort((a, b) => a.name.localeCompare(b.name));

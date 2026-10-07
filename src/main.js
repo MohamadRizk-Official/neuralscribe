@@ -22,6 +22,7 @@ const els = {
   modeInputs: [...document.querySelectorAll('input[name="mode"]')], modeNote: $('modeNote'),
   advanced: $('advanced'), advSummary: $('advSummary'), vocabInput: $('vocabInput'),
   qualityChip: $('qualityChip'), speakersStepLabel: $('speakersStepLabel'),
+  muteBtn: $('muteBtn'), volSlider: $('volSlider'),
 };
 
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
@@ -765,6 +766,49 @@ els.speedBtn.addEventListener('click', () => {
   els.player.playbackRate = SPEEDS[i];
   els.speedBtn.textContent = `${SPEEDS[i]}×`;
 });
+// ---------- playback volume ----------
+// Listening volume only: it sets the <audio> element's volume. The decoded samples used for
+// transcription were taken from the file before playback and are never affected.
+const VOL_KEY = 'neuralscribe.volume';
+const VOL_ICONS = {
+  muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="m16.5 9.5 5 5m0-5-5 5"/></svg>',
+  low: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9.5a3.5 3.5 0 0 1 0 5"/></svg>',
+  high: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M19 7a7 7 0 0 1 0 10"/></svg>',
+};
+const vol = { level: 100, muted: false };
+try {
+  const saved = JSON.parse(sessionStorage.getItem(VOL_KEY) || 'null');
+  if (saved && Number.isFinite(saved.level)) { vol.level = Math.max(0, Math.min(100, saved.level)); vol.muted = !!saved.muted; }
+} catch {}
+function applyVolume() {
+  const silent = vol.muted || vol.level === 0;
+  els.player.volume = vol.level / 100;
+  els.player.muted = vol.muted;
+  els.volSlider.value = String(silent ? 0 : vol.level);
+  const shown = silent ? 0 : vol.level;
+  els.volSlider.style.background = `linear-gradient(90deg, var(--cyan) 0%, var(--violet) ${shown}%, rgba(140,160,255,.16) ${shown}%)`;
+  els.volSlider.setAttribute('aria-valuetext', silent ? 'muted' : `${vol.level}%`);
+  els.muteBtn.innerHTML = VOL_ICONS[silent ? 'muted' : vol.level < 50 ? 'low' : 'high'];
+  els.muteBtn.title = silent ? 'Unmute (M)' : `Mute (M) · volume ${vol.level}%`;
+  els.muteBtn.setAttribute('aria-label', silent ? 'Unmute' : 'Mute');
+  els.muteBtn.classList.toggle('is-muted', silent);
+  try { sessionStorage.setItem(VOL_KEY, JSON.stringify(vol)); } catch {}
+}
+function toggleMute() {
+  if (vol.muted || vol.level === 0) {
+    vol.muted = false;
+    if (vol.level === 0) vol.level = 50;
+  } else vol.muted = true;
+  applyVolume();
+}
+els.muteBtn.addEventListener('click', toggleMute);
+els.volSlider.addEventListener('input', () => {
+  vol.level = Number(els.volSlider.value);
+  vol.muted = vol.level === 0;
+  applyVolume();
+});
+applyVolume();
+
 els.followBtn.addEventListener('click', () => {
   els.followBtn.classList.toggle('on');
   if (els.followBtn.classList.contains('on')) updateActive(true);
@@ -821,6 +865,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowLeft') { e.preventDefault(); seek(els.player.currentTime - 5); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); seek(els.player.currentTime + 5); }
   else if (e.key === '/' ) { e.preventDefault(); els.searchInput.focus(); }
+  else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); toggleMute(); }
 });
 
 // ---------- menu ----------

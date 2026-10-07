@@ -431,6 +431,12 @@ mark.cur { background: rgba(251, 191, 36, .6); }
 .pb-seek { flex: 1; min-width: 60px; appearance: none; -webkit-appearance: none; height: 5px; border-radius: 99px; background: rgba(140,160,255,.16); outline: none; cursor: pointer; }
 .pb-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px rgba(34,211,238,.9); }
 .pb-seek::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 50%; background: #fff; }
+.pb-vol { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.pb-btn.is-muted { color: var(--muted); }
+.pb-volume { width: 84px; appearance: none; -webkit-appearance: none; height: 5px; border-radius: 99px; background: rgba(140,160,255,.16); outline: none; cursor: pointer; }
+.pb-volume::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 8px rgba(34,211,238,.8); }
+.pb-volume::-moz-range-thumb { width: 12px; height: 12px; border: none; border-radius: 50%; background: #fff; }
+.pb-volume:focus-visible { outline: 2px solid var(--cyan); outline-offset: 4px; }
 .pb-chip {
   font-size: 11px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: none; color: var(--muted); cursor: pointer; flex: none;
 }
@@ -630,6 +636,7 @@ dialog.confirm p { margin: 0 0 20px; color: var(--muted); line-height: 1.5; font
   .seg { font-size: 15.5px; }
   .playerbar { gap: 6px; padding: 8px 10px; bottom: 10px; }
   #backBtn, #fwdBtn, .pb-time { display: none; }
+  .pb-volume { width: 56px; }
   .pct { font-size: 28px; }
   .auth-card { padding: 22px 18px; margin-top: 1vh; }
   .lib-item { grid-template-columns: minmax(0, 1fr) auto; padding: 14px; }

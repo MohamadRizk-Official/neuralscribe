@@ -250,6 +250,10 @@
           </button>
           <span class="pb-time mono" id="pbTime">0:00 / 0:00</span>
           <input type="range" class="pb-seek" id="pbSeek" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+          <div class="pb-vol">
+            <button class="pb-btn" id="muteBtn" type="button" title="Mute (M)" aria-label="Mute"></button>
+            <input type="range" class="pb-volume" id="volSlider" min="0" max="100" value="100" step="1" aria-label="Playback volume" />
+          </div>
           <button class="pb-chip mono" id="speedBtn" type="button" title="Playback speed">1×</button>
           <button class="pb-chip mono on" id="followBtn" type="button" title="Auto-scroll to the current line">Follow</button>
         </div>

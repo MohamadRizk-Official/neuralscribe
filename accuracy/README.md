@@ -9,7 +9,9 @@ Reproducible accuracy measurement for the on-device pipeline. Nothing here is up
 | **WER** | Word Error Rate = (substitutions + deletions + insertions) ÷ reference words, after normalisation (case, punctuation, Unicode, Arabic alef/yaa/taa-marbuta/diacritic variants). Pooled across items = total errors ÷ total reference words. |
 | **CER** | Character Error Rate, same idea on characters with spaces removed. Prefer it for Arabic and Arabic/English mixes, where word boundaries and clitics make WER harsh. |
 | **Important words** | How many of the item's `vocabulary` terms appear in the transcript (whole-phrase match). |
-| **Speaker count** | Whether the number of detected speakers equals the expected number. (Not a full diarization error rate.) |
+| **Speaker count** | Whether the number of detected speakers equals the expected number. |
+| **Wrong-speaker words** | Needs `<name>.turns.json`. Words are aligned as for WER; each hypothesis speaker is mapped 1:1 to the true speaker it overlaps most; the share of aligned words given to the wrong person or to Unknown (a word-level diarization error rate). Unknown words are also counted separately. |
+| **False / missed changes** | Speaker changes shown where the same person kept talking (e.g. a pitch change split off as another speaker), and real changes the transcript did not show. |
 | **Speed** | Seconds of audio processed per second, on the machine running the lab. |
 | **Diff** | Word-level alignment for manual review (substitutions, deletions, insertions highlighted). |
 
@@ -21,6 +23,7 @@ The metric code is `src/lib/metrics.js` (unit-tested), shared by the lab and the
 accuracy/testset/<set>/<name>.<wav|mp3|m4a|mp4|…>   the recording
 accuracy/testset/<set>/<name>.ref.txt               exact reference transcript (UTF-8, plain text)
 accuracy/testset/<set>/<name>.meta.json             optional: {"category","language","speakers","vocabulary":[…]}
+accuracy/testset/<set>/<name>.turns.json            optional: [{"speaker":"A","text":"…"}, …] who said what, in order
 ```
 
 Audio under `accuracy/testset/` is git-ignored (recordings can be private). Run
@@ -37,7 +40,9 @@ normalised away. For code-switching, write each word in the script it was spoken
 ### Synthetic set
 
 `accuracy/synthetic/` generates a reproducible English set with Windows text-to-speech plus degraded copies
-(noise, very heavy noise, quiet, quiet+noise, phone band, echo, car rumble, clipping):
+(noise, very heavy noise, quiet, quiet+noise, phone band, echo, car rumble, clipping, a mid-recording volume dip).
+One-speaker items use SSML prosody for a pitched word, whispered/soft, raised, laughing, emphasised and pitch-changing
+speech, to catch false speaker changes; two- and three-speaker items include short interjections:
 
 ```
 powershell -ExecutionPolicy Bypass -File accuracy/synthetic/generate.ps1
