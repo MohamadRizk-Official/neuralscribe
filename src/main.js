@@ -1,4 +1,7 @@
 import { decodeToMono16k, peaks } from './audio.js';
+import { isConfigured } from './lib/supabase.js';
+import { mountAccountMenu, getSession } from './lib/account.js';
+import { saveTranscript, updateTranscriptText, stashPending, peekPending, clearPending } from './lib/transcripts.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -152,6 +155,7 @@ function reset() {
   els.player.removeAttribute('src');
   if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
   state = null; currentFile = null; run = null;
+  resetSave();
   els.searchInput.value = '';
   closeMenu();
   show(els.dropPanel);
@@ -326,6 +330,7 @@ function onComplete({ lines, language, ms, device }) {
   setTimeout(() => {
     show(els.resultsPanel);
     renderAll();
+    autoSave(); // in addition to showing the result; a failure never touches what's on screen
   }, 400);
 }
 
@@ -420,6 +425,7 @@ function renderSpeakers() {
         g.querySelector('.avatar').textContent = initials(v);
       });
       drawTimeline();
+      scheduleSync();
     });
     input.addEventListener('blur', () => { if (!input.value.trim()) input.value = s.name; });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
@@ -539,6 +545,7 @@ function reassign(pred, to) {
   renderAll();
   window.scrollTo({ top: y });
   toast('Updated');
+  scheduleSync();
 }
 
 // search
@@ -798,6 +805,127 @@ els.copyBtn.addEventListener('click', async () => {
 });
 els.txtBtn.addEventListener('click', () => download(base() + '.txt', toTxt()));
 els.srtBtn.addEventListener('click', () => download(base() + '.srt', toSrt()));
+
+// ---------- account: save to My Library ----------
+// Only the finished transcript text (plus title, length, language) is stored. Audio never leaves the device.
+let session = null;
+const save = { id: null, status: 'idle', error: '', timer: null };
+const CLOUD = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z"/></svg>';
+const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17l9-10"/></svg>';
+const WARN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4m0 3v.01"/></svg>';
+
+if (isConfigured) {
+  mountAccountMenu(document.getElementById('accountSlot'), {
+    onChange: (s) => {
+      const signedInNow = !session && s;
+      session = s;
+      if (!state?.lines) return;
+      if (signedInNow && save.status === 'signed-out') doSave(); // signed in from elsewhere: save what's on screen
+      else if (!s && save.status === 'idle') autoSave();
+      else renderSaveBar();
+    },
+  });
+  resumePendingSave();
+}
+
+function resetSave() {
+  clearTimeout(save.timer);
+  Object.assign(save, { id: null, status: 'idle', error: '', timer: null });
+  els.saveBar?.classList.add('hidden');
+}
+
+const savePayload = () => ({ title: base(), durationSeconds: state.duration, language: state.language, text: toTxt() });
+
+async function autoSave() {
+  if (!isConfigured || !state?.lines?.length) return;
+  session = session ?? (await getSession());
+  if (!session) { save.status = 'signed-out'; return renderSaveBar(); }
+  await doSave();
+}
+
+async function doSave() {
+  if (save.id) return syncNow();
+  save.status = 'saving';
+  renderSaveBar();
+  try {
+    save.id = await saveTranscript(savePayload());
+    save.status = 'saved';
+  } catch (err) {
+    save.status = 'error';
+    save.error = err.message || String(err);
+  }
+  renderSaveBar();
+}
+
+// Speaker renames / reassignments after saving update the saved copy too.
+function scheduleSync() {
+  if (!save.id) return;
+  clearTimeout(save.timer);
+  save.status = 'pending';
+  renderSaveBar();
+  save.timer = setTimeout(syncNow, 1200);
+}
+async function syncNow() {
+  clearTimeout(save.timer);
+  if (!save.id || !state?.lines) return;
+  save.status = 'syncing';
+  renderSaveBar();
+  try {
+    await updateTranscriptText(save.id, toTxt());
+    save.status = 'saved';
+  } catch (err) {
+    save.status = 'sync-error';
+    save.error = err.message || String(err);
+  }
+  renderSaveBar();
+}
+
+function renderSaveBar() {
+  const bar = els.saveBar || (els.saveBar = document.getElementById('saveBar'));
+  if (!bar || !isConfigured || !state?.lines) return bar?.classList.add('hidden');
+  const views = {
+    'signed-out': ['muted', CLOUD, 'Not saved. Sign in to keep this transcript in your library.', '<button class="btn btn-ghost btn-sm" type="button" data-act="signin">Sign in to save</button>'],
+    saving: ['busy', CLOUD, 'Saving to My Library…', ''],
+    pending: ['busy', CLOUD, 'Saving your changes…', ''],
+    syncing: ['busy', CLOUD, 'Saving your changes…', ''],
+    saved: ['ok', CHECK, 'Saved to My Library <span class="save-note">· transcript text only, audio stays on this device</span>', `<a class="btn btn-ghost btn-sm" href="/transcript?id=${encodeURIComponent(save.id || '')}">Open saved copy</a>`],
+    error: ['bad', WARN, `Couldn't save to your library: ${esc(save.error)}. Your transcript is still here, and you can export it.`, '<button class="btn btn-ghost btn-sm" type="button" data-act="retry">Retry</button>'],
+    'sync-error': ['bad', WARN, `Couldn't save your latest edits: ${esc(save.error)}`, '<button class="btn btn-ghost btn-sm" type="button" data-act="retry">Retry</button>'],
+  };
+  const v = views[save.status];
+  if (!v) return bar.classList.add('hidden');
+  const [kind, icon, text, action] = v;
+  bar.className = `save-bar ${kind}`;
+  bar.innerHTML = `<span class="save-icon">${icon}</span><span class="save-text">${text}</span>${action}`;
+  bar.querySelector('[data-act="retry"]')?.addEventListener('click', doSave);
+  bar.querySelector('[data-act="signin"]')?.addEventListener('click', () => {
+    // Park the transcript in this browser, sign in, then it's saved automatically on return.
+    if (!stashPending(savePayload())) return toast("Couldn't hold the transcript for sign-in. Export it first.");
+    location.href = `/auth?next=${encodeURIComponent('/?save=pending')}`;
+  });
+}
+
+// Back from signing in with a parked transcript: save it, then open it.
+async function resumePendingSave() {
+  const params = new URLSearchParams(location.search);
+  const pending = peekPending();
+  if (params.has('save')) history.replaceState(null, '', '/');
+  if (!pending) return;
+  const s = await getSession();
+  if (!s) return; // stays parked until they sign in
+  const note = document.createElement('div');
+  note.className = 'pending-card panel';
+  note.innerHTML = `<span class="spinner sm" aria-hidden="true"></span><span>Saving “${esc(pending.title)}” to My Library…</span>`;
+  document.body.appendChild(note);
+  try {
+    const id = await saveTranscript(pending);
+    clearPending();
+    location.replace(`/transcript?id=${encodeURIComponent(id)}`);
+  } catch (err) {
+    note.innerHTML = `<span class="save-icon bad">${WARN}</span><span>Couldn't save “${esc(pending.title)}”: ${esc(err.message || err)}</span><button class="btn btn-ghost btn-sm" type="button">Retry</button>`;
+    note.querySelector('button').addEventListener('click', () => { note.remove(); resumePendingSave(); });
+  }
+}
 
 // ---------- utils ----------
 function fmtTime(s) {

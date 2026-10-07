@@ -28,7 +28,8 @@
       </a>
       <div class="topbar-right">
         <span class="chip chip-device" id="deviceChip" role="button" tabindex="0" title="Where the AI runs"><span class="dot"></span>detecting…</span>
-        <span class="chip chip-muted hide-sm"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>on-device · nothing uploaded</span>
+        <span class="chip chip-muted hide-sm" title="Audio is decoded and transcribed on this device and never uploaded. If you're signed in, the finished transcript text is saved to your account."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>audio stays on this device</span>
+        <div id="accountSlot"></div>
       </div>
     </header>
 
@@ -176,6 +177,7 @@
             </div>
             <button class="btn btn-primary" id="newBtn" type="button">New file</button>
           </div>
+          <div class="save-bar hidden" id="saveBar" aria-live="polite"></div>
         </div>
 
         <div class="panel timeline-card">
@@ -227,7 +229,7 @@
     <div class="menu hidden" id="menu" role="menu"></div>
 
     <footer class="foot mono">
-      Whisper + pyannote + WeSpeaker via Transformers.js · models download once, then cached · your audio never leaves this device
+      Whisper + pyannote + WeSpeaker via Transformers.js · models download once, then cached · your audio never leaves this device · when you're signed in, finished transcripts are saved to your private account
     </footer>
 
     <script type="module" src="/src/main.js"></script>

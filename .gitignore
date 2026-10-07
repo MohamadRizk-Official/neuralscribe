@@ -29,3 +29,8 @@ dist-ssr
 .vercel
 public/__*
 public/ns_*
+
+# environment files (never commit; .env.example documents the names)
+.env
+.env.*
+!.env.example

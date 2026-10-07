@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#04050d" />
+    <meta name="robots" content="noindex" />
+    <title>Signing you in — NeuralScribe</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true">
+      <div class="bg-grid"></div><div class="bg-glow bg-glow-a"></div><div class="bg-glow bg-glow-b"></div><div class="bg-noise"></div>
+    </div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="NeuralScribe home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">Neural<b>Scribe</b></span>
+      </a>
+    </header>
+    <main class="app">
+      <section class="panel auth-card center" aria-live="polite">
+        <div class="spinner" id="spinner" aria-hidden="true"></div>
+        <h1 class="auth-title" id="cbTitle">Signing you in…</h1>
+        <p class="auth-sub" id="cbText">One moment.</p>
+        <a class="btn btn-primary btn-block hidden" id="cbBtn" href="/auth">Back to sign in</a>
+      </section>
+    </main>
+    <script type="module" src="/src/pages/callback.js"></script>
+  </body>
+</html>
