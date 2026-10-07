@@ -87,6 +87,9 @@ svg { stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round
 .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 10px var(--amber); }
 .chip.ok .dot { background: var(--lime); box-shadow: 0 0 10px var(--lime); }
 .chip.ok { color: var(--text); }
+a.chip { text-decoration: none; }
+.chip-user { cursor: pointer; transition: border-color .15s, color .15s; }
+.chip-user:hover { color: var(--text); border-color: var(--line-2); }
 
 /* ===== Layout ===== */
 .app { max-width: 1280px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 40px) 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }

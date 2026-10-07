@@ -785,3 +785,14 @@ function toast(msg) {
   clearTimeout(toastEl._t);
   toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 1600);
 }
+
+// ---------- who is signed in (only exists on the deployed, GitHub-gated site) ----------
+fetch('/api/auth/me', { credentials: 'same-origin' })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((d) => {
+    if (!d?.login) return;
+    els.userChip = document.getElementById('userChip');
+    els.userChip.innerHTML = `@${esc(d.login)} <span aria-hidden="true">·</span> Sign out`;
+    els.userChip.classList.remove('hidden');
+  })
+  .catch(() => {});

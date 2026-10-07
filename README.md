@@ -45,11 +45,32 @@ npm run dev
 npm run build   # outputs to dist/
 ```
 
-Deployed on Vercel — zero config, static site.
+Deployed on Vercel as a static site.
 
-## Notes & limits
+## Locking the deployed site to your GitHub collaborators
 
-- First run downloads the chosen model (Tiny ≈ 40 MB, Base ≈ 75 MB, Small ≈ 250 MB, Large v3 Turbo ≈ 1 GB).
-- Speaker detection distinguishes voices but cannot know names — rename them yourself.
-- Long recordings take a while on CPU; a GPU (Chrome/Edge with WebGPU) is much faster.
-- Speaker detection works best with up to 3 clearly different voices and little overlap.
+`middleware.js` runs in front of every request. A visitor needs a signed session cookie, which
+`/api/auth/callback` only issues after GitHub confirms the signed-in account has **write access
+to this repository** (owner, collaborator or team with push). Add someone as a collaborator on GitHub
+and they can open the site; remove them and their next sign-in (or within 7 days) is refused.
+
+The gate fails closed: if any setting below is missing, nobody gets in.
+
+1. Create a GitHub OAuth app (Settings → Developer settings → OAuth Apps → New):
+   - Homepage URL: `https://<your-site>.vercel.app`
+   - Authorization callback URL: `https://<your-site>.vercel.app/api/auth/callback`
+2. Add these Production environment variables in Vercel:
+
+| Name | Value |
+| --- | --- |
+| `GITHUB_CLIENT_ID` | from the OAuth app |
+| `GITHUB_CLIENT_SECRET` | from the OAuth app (keep private) |
+| `GITHUB_REPO` | `owner/repo` whose collaborators may enter |
+| `CANONICAL_HOST` | `<your-site>.vercel.app` |
+| `SESSION_SECRET` | a long random string, e.g. `openssl rand -hex 32` |
+
+3. Turn Vercel's own Deployment Protection off (the gate replaces it) and redeploy.
+
+The repository must stay public (or the sign-in scope must be widened), because the check reads the
+signed-in user's permissions on the repo. To work on the gate locally, run `vercel dev` with the same
+variables in `.env.local`.
