@@ -67,18 +67,33 @@ const fmt = (s) => {
 };
 
 // ---------- model loading ----------
-async function detectDevice() {
+// Why we ended up on the CPU, so the page can explain it:
+//   'no-webgpu'  the browser has no WebGPU in workers   'no-adapter'  WebGPU exists but no usable GPU
+//   'error'      asking for a GPU threw                 'load-failed' GPU found but the models wouldn't run on it
+//   'forced'     ?cpu was in the URL (testing)
+let gpuReason = null;
+
+async function detectDevice(forceCPU = false) {
   if (device) return device;
+  if (forceCPU) {
+    gpuReason = 'forced';
+    device = 'wasm';
+    return device;
+  }
   try {
-    if (self.navigator?.gpu) {
+    if (!self.navigator?.gpu) gpuReason = 'no-webgpu';
+    else {
       const adapter = await self.navigator.gpu.requestAdapter();
       if (adapter) {
         hasF16 = adapter.features?.has('shader-f16') ?? false;
         device = 'webgpu';
         return device;
       }
+      gpuReason = 'no-adapter';
     }
-  } catch {}
+  } catch {
+    gpuReason = 'error';
+  }
   device = 'wasm';
   return device;
 }
@@ -122,7 +137,9 @@ async function loadModels(modelKey, diarize, progress_callback) {
       if (dev === 'webgpu') {
         // Some GPUs/drivers fail on WebGPU — fall back to CPU (wasm) transparently.
         status('WebGPU failed, falling back to CPU…');
+        console.warn('WebGPU model load failed:', err);
         dev = device = 'wasm';
+        gpuReason = 'load-failed';
         asr = await pipeline('automatic-speech-recognition', ASR_MODELS[modelKey], {
           ...asrOptions(modelKey, dev),
           progress_callback,
@@ -606,7 +623,7 @@ async function transcribeTurns(audio, turns, language, batchSize) {
 self.addEventListener('message', async (e) => {
   const { type } = e.data;
   if (type === 'detect') {
-    post({ type: 'device', device: await detectDevice() });
+    post({ type: 'device', device: await detectDevice(e.data.forceCPU), reason: gpuReason });
     return;
   }
   if (type !== 'run') return;
@@ -616,7 +633,7 @@ self.addEventListener('message', async (e) => {
   try {
     post({ type: 'stage', stage: 'load' });
     const dev = await loadModels(model, wantDiarize, (p) => post({ type: 'progress', ...p }));
-    post({ type: 'device', device: dev });
+    post({ type: 'device', device: dev, reason: gpuReason });
 
     lap0.t = performance.now();
     let segments = null;

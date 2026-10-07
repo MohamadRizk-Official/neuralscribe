@@ -15,7 +15,7 @@ const els = {
   player: $('player'), playBtn: $('playBtn'), backBtn: $('backBtn'), fwdBtn: $('fwdBtn'), pbTime: $('pbTime'),
   pbSeek: $('pbSeek'), speedBtn: $('speedBtn'), followBtn: $('followBtn'),
   errorPanel: $('errorPanel'), errorText: $('errorText'), retryBtn: $('retryBtn'),
-  deviceChip: $('deviceChip'), menu: $('menu'),
+  deviceChip: $('deviceChip'), menu: $('menu'), cpuNote: $('cpuNote'), cpuWhy: $('cpuWhy'),
 };
 
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
@@ -29,6 +29,7 @@ const STAGE_SPAN = { decode: [0, 8], load: [8, 20], speakers: [20, 34], run: [34
 const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const DOTS = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>';
 
+const FORCE_CPU = new URLSearchParams(location.search).has('cpu'); // testing: behave like a computer without GPU
 let worker = null;
 let currentFile = null;
 let objectUrl = null;
@@ -61,11 +62,11 @@ function getWorker() {
 function killWorker() {
   if (worker) { worker.terminate(); worker = null; }
 }
-getWorker().postMessage({ type: 'detect' });
+getWorker().postMessage({ type: 'detect', forceCPU: FORCE_CPU });
 
 function onWorkerMessage({ data }) {
   switch (data.type) {
-    case 'device': setDevice(data.device); break;
+    case 'device': setDevice(data.device, data.reason); break;
     case 'stage': setStage(data.stage); break;
     case 'status': onStatus(data.text); break;
     case 'progress': onDownload(data); break;
@@ -77,15 +78,47 @@ function onWorkerMessage({ data }) {
   }
 }
 
-function setDevice(dev) {
+let deviceInfo = { dev: null, reason: null };
+function setDevice(dev, reason) {
+  // the page itself may have WebGPU even when the background worker doesn't
+  if (dev !== 'webgpu' && reason === 'no-webgpu' && 'gpu' in navigator) reason = 'worker-only';
+  deviceInfo = { dev, reason };
   els.deviceChip.classList.add('ok');
-  els.deviceChip.innerHTML = `<span class="dot"></span>${dev === 'webgpu' ? 'GPU accelerated' : 'CPU mode'}`;
-  if (dev !== 'webgpu') {
-    const turbo = els.modelSelect.querySelector('option[value="turbo"]');
-    if (turbo) { turbo.disabled = true; turbo.textContent += ' (needs GPU)'; }
-    if (els.modelSelect.value === 'turbo') els.modelSelect.value = 'base';
+  els.deviceChip.classList.toggle('cpu', dev !== 'webgpu');
+  els.deviceChip.innerHTML = dev === 'webgpu'
+    ? '<span class="dot"></span>GPU accelerated'
+    : '<span class="dot"></span>CPU mode <span class="why">why?</span>';
+  els.deviceChip.title = dev === 'webgpu' ? 'Running on your graphics card' : 'Running on the processor only. Click to see why.';
+  els.cpuNote.classList.toggle('hidden', dev === 'webgpu');
+  // On CPU the large model needs minutes per 30 s of audio (an hour-long file would take many hours),
+  // so it is only offered with a GPU.
+  const turbo = els.modelSelect.querySelector('option[value="turbo"]');
+  if (turbo) {
+    turbo.disabled = dev !== 'webgpu';
+    turbo.textContent = dev === 'webgpu' ? 'Best · large-v3 turbo' : 'Best · large-v3 turbo (needs a GPU)';
   }
+  if (dev !== 'webgpu' && els.modelSelect.value === 'turbo') els.modelSelect.value = 'small';
 }
+
+const CPU_REASONS = {
+  'no-webgpu': ["This browser can't use the graphics card", "It doesn't support WebGPU, which is what lets a web page use the GPU. Open the site in the latest <b>Google Chrome</b> or <b>Microsoft Edge</b> on Windows, Mac or Android. Firefox, older Safari and Chrome on Linux usually stay on the CPU."],
+  'worker-only': ['This browser only half-supports the GPU', 'It offers WebGPU on the page but not to the background worker this app runs in. The latest <b>Google Chrome</b> or <b>Microsoft Edge</b> supports both.'],
+  'no-adapter': ["The browser couldn't use your graphics card", "WebGPU is supported, but no usable GPU was offered. Usually one of these fixes it:<br>• Browser settings → System → turn on <b>Use graphics acceleration when available</b>, then restart the browser.<br>• Update your graphics driver (NVIDIA, AMD or Intel).<br>• Don't use it over Remote Desktop or in a virtual machine.<br>• Open <code>chrome://gpu</code>: if WebGPU says &quot;Disabled&quot;, your GPU is on the browser's block list."],
+  'error': ["The graphics card didn't respond", 'Asking the browser for the GPU failed. Restart the browser, update your graphics driver, and make sure graphics acceleration is on in the browser settings.'],
+  'load-failed': ["Your GPU couldn't run the AI models", 'A GPU was found, but loading the models on it failed, usually because of an old driver or too little graphics memory. Update your graphics driver, close other heavy tabs and games, and reload.'],
+  'forced': ['CPU mode was forced', 'The address contains <code>?cpu</code>, which is a testing switch. Remove it to use the GPU.'],
+};
+function showDeviceInfo() {
+  if (deviceInfo.dev === 'webgpu') {
+    openInfo(els.deviceChip, 'Using your graphics card', 'WebGPU is working, so transcription runs on your GPU. All models are available.');
+    return;
+  }
+  const [title, body] = CPU_REASONS[deviceInfo.reason] || CPU_REASONS['no-webgpu'];
+  openInfo(els.deviceChip, title, `${body}<br><br>Everything still works on the CPU, just slower: <b>Balanced</b> runs about twice as fast as real time on a typical laptop, and <b>Accurate</b> is the best quality available without a GPU. <b>Best</b> needs a GPU.`);
+}
+els.deviceChip.addEventListener('click', showDeviceInfo);
+els.deviceChip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showDeviceInfo(); } });
+els.cpuWhy.addEventListener('click', (e) => { e.preventDefault(); showDeviceInfo(); });
 
 // ---------- file intake ----------
 ['dragenter', 'dragover'].forEach((ev) => els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.add('over'); }));
@@ -114,7 +147,7 @@ function show(panel) {
 }
 function reset() {
   killWorker();
-  getWorker().postMessage({ type: 'detect' });
+  getWorker().postMessage({ type: 'detect', forceCPU: FORCE_CPU });
   els.player.pause();
   els.player.removeAttribute('src');
   if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
@@ -709,7 +742,7 @@ function openMenu(anchor, items) {
     b.addEventListener('click', () => { closeMenu(); it.onClick(); });
     m.appendChild(b);
   }
-  m.classList.remove('hidden');
+  m.classList.remove('hidden', 'menu-info');
   const r = anchor.getBoundingClientRect();
   const mw = m.offsetWidth, mh = m.offsetHeight;
   let left = Math.min(r.left, window.innerWidth - mw - 12);
@@ -720,9 +753,21 @@ function openMenu(anchor, items) {
   m.querySelector('button')?.focus({ preventScroll: true });
   setTimeout(() => document.addEventListener('pointerdown', outsideMenu), 0);
 }
+function openInfo(anchor, title, html) {
+  const m = els.menu;
+  m.innerHTML = `<div class="info"><div class="info-title">${esc(title)}</div><div class="info-body">${html}</div></div>`;
+  m.classList.remove('hidden');
+  m.classList.add('menu-info');
+  const r = anchor.getBoundingClientRect();
+  const mw = m.offsetWidth, mh = m.offsetHeight;
+  m.style.left = `${Math.max(12, Math.min(r.right - mw, window.innerWidth - mw - 12))}px`;
+  m.style.top = `${Math.max(12, Math.min(r.bottom + 8, window.innerHeight - mh - 12))}px`;
+  setTimeout(() => document.addEventListener('pointerdown', outsideMenu), 0);
+}
 function outsideMenu(e) { if (!els.menu.contains(e.target)) closeMenu(); }
 function closeMenu() {
   els.menu.classList.add('hidden');
+  els.menu.classList.remove('menu-info');
   document.removeEventListener('pointerdown', outsideMenu);
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });

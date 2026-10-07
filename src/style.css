@@ -87,6 +87,19 @@ svg { stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round
 .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 10px var(--amber); }
 .chip.ok .dot { background: var(--lime); box-shadow: 0 0 10px var(--lime); }
 .chip.ok { color: var(--text); }
+.chip-device { cursor: pointer; transition: border-color .15s; }
+.chip-device:hover { border-color: var(--line-2); }
+.chip-device:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.chip.cpu .dot { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+.chip .why { color: var(--amber); text-transform: none; letter-spacing: 0; text-decoration: underline; text-underline-offset: 2px; }
+.cpu-note { color: #f5d38a; background: rgba(251,191,36,.07); border: 1px solid rgba(251,191,36,.25); border-radius: 10px; padding: 9px 12px; margin-top: 12px; }
+.cpu-note b { color: #fde68a; }
+.cpu-note a { color: var(--amber); font-weight: 600; }
+.menu-info { width: min(380px, calc(100vw - 24px)); padding: 16px 18px; }
+.info-title { font-weight: 600; font-size: 15.5px; margin-bottom: 8px; }
+.info-body { font-size: 13.5px; line-height: 1.6; color: #c3cae6; }
+.info-body b { color: var(--text); }
+.info-body code { font-family: var(--mono); font-size: 12px; color: var(--cyan); }
 
 /* ===== Layout ===== */
 .app { max-width: 1280px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 40px) 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
