@@ -1,7 +1,8 @@
 # NeuralScribe
 
 Free, private transcription with speaker detection. Audio is processed 100% in your browser;
-signed-in users can save the finished transcript text to their account.
+signed-in users can save the finished transcript text to their account, and turn it into a summary, key points,
+chapters, action items and answers (from the transcript text only; audio is never sent anywhere).
 
 Drop a voice note, MP3, M4A, MP4, WAV, OGG or WebM file and get a timestamped transcript
 split by speaker ("Speaker 1", "Speaker 2", … or "Unknown" when it can't tell). Rename
@@ -86,20 +87,73 @@ See [accuracy/README.md](accuracy/README.md) for measuring accuracy on real reco
 - Player: space to play/pause, ← / → to skip, speed control, volume slider + mute (`M`, remembered for the
   browser session), auto-follow. Volume only affects playback — transcription uses its own decoded copy of the file.
 - Export as .txt or .srt
+- **Original / Clean** transcript view. Clean removes hesitations (um, uh, erm…), directly repeated words and short
+  repeated phrases, and stutters, by fixed rules (`src/lib/clean.js`): it can only delete, never add or reword, so
+  it can't change meaning. The original is never modified and is what gets saved; exports follow the view on screen.
+- **Tabs:** Transcript · Summary · Ask · Insights (below).
+
+## Summary, Ask and Insights
+
+Built on top of a saved transcript; the transcript stays the source of truth. Requires a signed-in user.
+
+| Tab | What | When it's generated |
+| --- | --- | --- |
+| Summary | short summary (TL;DR for voice messages), key points, chapters (recordings ≥ 8 min) | automatically after a fresh transcription once the user has turned summaries on once (first time: one click); otherwise on click |
+| Summary | detailed summary, structured for the recording type | on click |
+| Insights | by recording type — General: action items, decisions, discussed-not-decided, dates · Meeting: + open questions, follow-ups · Lecture: notes, key concepts, definitions, topics, possible exam points · Interview: Q&A, topics, quotes, takeaways · Podcast: topics, takeaways, quotes · Voice Message: requested actions, important information, dates & times | on click, or automatically when a recording type was chosen before transcribing |
+| Ask | questions answered only from the recording, with clickable timestamp citations, streamed | per question |
+
+**Recording type** (General, Lecture, Meeting, Interview, Podcast, Voice Message) is optional: pick it in Advanced
+settings before transcribing or on the Insights tab afterwards. It is stored on the transcript.
+
+**Grounding.** The model sees each transcript line as `[id] m:ss Speaker: text` and cites line ids, never
+timestamps. The server (`server/ai/grounding.js`) keeps only ids that exist (for Ask: only ids it actually sent),
+drops any item without a valid line, drops "quotes" that don't appear word for word in the cited lines, and builds
+chapter times from real lines. Answers the transcript doesn't support come back as "I couldn't find that in this
+recording."; an answer without any citation is labelled as unsupported. Speaker labels are never turned into guessed
+names, and relative dates ("next Friday") are kept as said.
+
+**Retrieval (Ask).** Transcripts up to ~7k tokens (≈ 25–30 min) are sent whole. Longer ones: a cheap call expands
+the question into likely keywords, BM25 scores ~75-second chunks of the transcript, chunks get boosted for a speaker
+named in the question, for "this part" (current playback position) and for lines behind already-extracted insights
+that match the question's intent (decisions, deadlines…); the best chunks plus their neighbours are sent, up to
+~6k tokens, with "…" marking gaps. No embeddings or vector store: segments are retrieved on the fly from the stored
+transcript, so nothing extra is stored or regenerated (`server/ai/retrieve.js`).
+
+**Caching & staleness.** Results are stored in `transcription_insights` (one row per transcript, kind and recording
+type) and Ask answers in `transcription_questions`. Reopening a recording reads them; nothing regenerates by
+itself. Identical questions on the same transcript version are answered from storage. `transcriptions.content_version`
+is bumped by a database trigger whenever the text or segments change (e.g. a speaker rename); results from an older
+version are shown with an "out of date — Update" notice instead of as current.
+
+**Long transcripts.** Each prompt stays under ~80k tokens (Haiku 5.5's cheaper price band is ≤ 100k); longer
+transcripts are analysed in parts and the partial results merged in one more call.
+
+**Model & cost.** Claude Haiku 5.5 (`claude-haiku-5-5`) for everything, called only from the server
+(`server/ai/`). Per-task overrides: `AI_MODEL_SUMMARY`, `AI_MODEL_INSIGHTS`, `AI_MODEL_ASK` (or `AI_MODEL` for all).
+At $0.10 / $0.50 per million input / output tokens, a 1-hour recording (~15k tokens) costs roughly $0.002–0.005
+per summary or insight set and about $0.001–0.002 per question (thinking tokens included in output).
+
+**Privacy.** Only transcript text (plus length and speaker labels) is sent to Anthropic, and only when one of these
+features runs. Audio is never sent. API keys stay on the server.
 
 ## Accounts & saved transcripts (Supabase)
 
 Optional. Without the two variables below the app works exactly as before, with account features hidden.
 
 - **Pages:** `/auth` (sign in, sign up, forgot/reset password, Google), `/auth/callback`, `/library`, `/transcript?id=…`.
-- **Client:** `@supabase/supabase-js` in the browser with the PKCE flow (`src/lib/supabase.js`). There is no
-  server code; all protection is enforced by Postgres Row Level Security.
+- **Client:** `@supabase/supabase-js` in the browser with the PKCE flow (`src/lib/supabase.js`). All data
+  protection is enforced by Postgres Row Level Security.
+- **Server:** two Vercel functions, `api/insights.js` and `api/ask.js` (code in `server/`). They verify the
+  caller's Supabase access token with Supabase Auth and then query the database *as that user* (their token,
+  the publishable key), so RLS applies to the server too. No service-role key is used.
 - **Saving:** when a signed-in user finishes a transcription it is saved automatically (title, duration,
-  language and the transcript in the same format as the .txt export). Later speaker renames sync to the saved copy.
+  language, recording type, the transcript in the same format as the .txt export, and line-level `segments`
+  with start/end/speaker for timestamps). Later speaker renames sync to the saved copy.
   Signed-out users can choose "Sign in to save": the transcript waits in that browser's localStorage and is
   saved right after sign-in.
 - **Privacy:** audio never leaves the device. Only transcript text and its metadata are stored, and only for
-  signed-in users.
+  signed-in users. Summary, Ask and Insights send transcript text (never audio) to Anthropic when used.
 
 ### Environment variables
 
@@ -107,10 +161,13 @@ Optional. Without the two variables below the app works exactly as before, with 
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Vercel (Production) + `.env.local` | `https://<project-ref>.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Vercel (Production) + `.env.local` | the `sb_publishable_…` key |
+| `ANTHROPIC_API_KEY` | Vercel (Production + Preview, Sensitive) + `.env.local` | **server only**; enables Summary / Ask / Insights |
+| `AI_MODEL`, `AI_MODEL_SUMMARY`, `AI_MODEL_INSIGHTS`, `AI_MODEL_ASK` | optional | override `claude-haiku-5-5` |
+| `AI_PROVIDER=mock` | `.env.local` only | local development without a key (ignored in production) |
 
 Vite is configured (`envPrefix`) to expose only `VITE_*` / `NEXT_PUBLIC_*` variables to the browser.
-**Never** put the secret / service-role key in either prefix. Copy `.env.example` to `.env.local` for local
-development; `.env*` files are git-ignored.
+**Never** put the secret / service-role key or `ANTHROPIC_API_KEY` in either prefix. Copy `.env.example` to
+`.env.local` for local development; `.env*` files are git-ignored. `npm run dev` also runs the `api/` functions.
 
 ### Database
 
@@ -122,6 +179,10 @@ a trigger that creates a profile for every new auth user, indexes, column privil
 - users can read, create, edit and delete only their own transcriptions; `user_id` always comes from `auth.uid()`
 - `usage` and `subscriptions` are read-only for users; only trusted server code (service role) may write them
 - signed-out visitors (`anon`) have no access to any of these tables
+- Phase 3 (`20261008000000_phase3_insights.sql`): `transcriptions.segments` + `content_version` (trigger-managed,
+  not writable by users); `transcription_insights` and `transcription_questions`, readable/writable only when
+  `user_id = auth.uid()` **and** the parent transcription belongs to that user; `user_id` is never writable;
+  deleting a transcription deletes its results.
 
 ### Supabase dashboard settings (one-time)
 
@@ -143,7 +204,7 @@ npm run dev
 npm run build   # outputs to dist/
 ```
 
-Deployed on Vercel — zero config, static site.
+Deployed on Vercel: the static site plus the two functions in `api/` (`vercel.json` sets their max duration).
 
 ## Notes & limits
 
