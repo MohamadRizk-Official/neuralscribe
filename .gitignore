@@ -27,3 +27,5 @@ dist-ssr
 .claude
 
 .vercel
+public/__*
+public/ns_*

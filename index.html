@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#05060f" />
+    <meta name="theme-color" content="#04050d" />
     <meta name="description" content="Free, private, in-browser transcription with speaker detection. Drop a voice note, MP3 or MP4 and get a transcript of who said what." />
     <title>NeuralScribe — free private transcription</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%2305060f'/%3E%3Cg stroke='url(%23g)' stroke-width='5' stroke-linecap='round'%3E%3Cline x1='14' y1='28' x2='14' y2='36'/%3E%3Cline x1='23' y1='20' x2='23' y2='44'/%3E%3Cline x1='32' y1='12' x2='32' y2='52'/%3E%3Cline x1='41' y1='22' x2='41' y2='42'/%3E%3Cline x1='50' y1='27' x2='50' y2='37'/%3E%3C/g%3E%3C/svg%3E" />
@@ -13,125 +13,206 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div class="bg">
+    <div class="bg" aria-hidden="true">
       <div class="bg-grid"></div>
       <div class="bg-glow bg-glow-a"></div>
       <div class="bg-glow bg-glow-b"></div>
+      <div class="bg-glow bg-glow-c"></div>
+      <div class="bg-noise"></div>
     </div>
 
     <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">
-          <i></i><i></i><i></i><i></i><i></i>
-        </span>
+      <a class="brand" href="/" aria-label="NeuralScribe home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         <span class="brand-name">Neural<b>Scribe</b></span>
-      </div>
+      </a>
       <div class="topbar-right">
         <span class="chip" id="deviceChip" title="Where the AI runs"><span class="dot"></span>detecting…</span>
-        <span class="chip chip-muted">100% on-device · nothing uploaded</span>
+        <span class="chip chip-muted hide-sm"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>on-device · nothing uploaded</span>
       </div>
     </header>
 
     <main class="app">
-      <!-- ===== HERO / DROP ZONE ===== -->
-      <section class="panel hero" id="dropPanel">
+      <!-- ===== HOME / DROP ===== -->
+      <section class="hero" id="dropPanel">
         <div class="hero-text">
+          <div class="eyebrow mono"><span class="pulse"></span>speech intelligence · runs in your browser</div>
           <h1>Who said <span class="grad">what</span>.</h1>
-          <p>Drop a voice note, MP3, MP4, WAV or any audio/video file. Get a timestamped transcript split by speaker — free, private, and running entirely in your browser.</p>
+          <p>Drop a voice note, call recording, MP3 or MP4. Get a clean transcript split by speaker, free and private, processed entirely on your own device.</p>
+          <ul class="pills">
+            <li><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>Private by design</li>
+            <li><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.4-.3 4.4 1 5 3.6"/></svg>Speaker detection</li>
+            <li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9S14.5 18.3 12 21c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"/></svg>99 languages</li>
+            <li><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17l9-10"/></svg>Free, no account</li>
+          </ul>
         </div>
 
-        <label class="dropzone" id="dropzone" for="fileInput">
-          <input type="file" id="fileInput" accept="audio/*,video/*,.m4a,.mp3,.mp4,.wav,.ogg,.opus,.webm,.aac,.flac,.mov" hidden />
-          <div class="dz-ring"></div>
-          <div class="dz-inner">
-            <svg class="dz-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-              <path d="M24 32V12m0 0-8 8m8-8 8 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M10 30v6a4 4 0 0 0 4 4h20a4 4 0 0 0 4-4v-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-            </svg>
-            <div class="dz-title">Drop a file here or <u>browse</u></div>
-            <div class="dz-sub mono">voice notes · mp3 · m4a · mp4 · wav · ogg · webm</div>
-          </div>
-        </label>
+        <div class="panel drop-card">
+          <label class="dropzone" id="dropzone" for="fileInput">
+            <input type="file" id="fileInput" accept="audio/*,video/*,.m4a,.mp3,.mp4,.wav,.ogg,.opus,.webm,.aac,.flac,.mov,.amr,.3gp" hidden />
+            <div class="dz-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="dz-inner">
+              <div class="dz-icon">
+                <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                  <path d="M24 31V13m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M11 29v5a4 4 0 0 0 4 4h18a4 4 0 0 0 4-4v-5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="dz-title">Drop a file or <u>browse</u></div>
+              <div class="dz-sub mono">m4a · mp3 · mp4 · wav · ogg · webm · mov · up to hours long</div>
+            </div>
+          </label>
 
-        <div class="controls">
-          <div class="control">
-            <label for="modelSelect">Model</label>
-            <select id="modelSelect">
-              <option value="tiny">Tiny — fastest (~40 MB)</option>
-              <option value="base" selected>Base — balanced (~75 MB)</option>
-              <option value="small">Small — more accurate (~250 MB)</option>
-              <option value="turbo">Large v3 Turbo — best (~1 GB, needs WebGPU)</option>
-            </select>
+          <div class="controls">
+            <div class="control">
+              <label for="modelSelect">Accuracy</label>
+              <select id="modelSelect">
+                <option value="tiny">Fastest · tiny</option>
+                <option value="base" selected>Balanced · base</option>
+                <option value="small">Accurate · small</option>
+                <option value="turbo">Best · large-v3 turbo</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="langSelect">Language</label>
+              <select id="langSelect">
+                <option value="">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="ar">Arabic</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="it">Italian</option>
+                <option value="pt">Portuguese</option>
+                <option value="tr">Turkish</option>
+                <option value="ur">Urdu</option>
+                <option value="fa">Persian</option>
+                <option value="hi">Hindi</option>
+                <option value="ru">Russian</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="speakersSelect">Speakers</label>
+              <select id="speakersSelect">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="2">2 people</option>
+                <option value="3">3 people</option>
+                <option value="4">4 people</option>
+                <option value="5">5 people</option>
+                <option value="6">6 people</option>
+                <option value="7">7 people</option>
+                <option value="8">8 people</option>
+                <option value="9">9 people</option>
+                <option value="10">10 people</option>
+                <option value="off">Don't label speakers</option>
+              </select>
+            </div>
           </div>
-          <div class="control">
-            <label for="langSelect">Language</label>
-            <select id="langSelect">
-              <option value="">Auto-detect</option>
-              <option value="en">English</option>
-              <option value="ar">Arabic</option>
-              <option value="es">Spanish</option>
-              <option value="fr">French</option>
-              <option value="de">German</option>
-              <option value="it">Italian</option>
-              <option value="pt">Portuguese</option>
-              <option value="tr">Turkish</option>
-              <option value="ur">Urdu</option>
-              <option value="fa">Persian</option>
-              <option value="hi">Hindi</option>
-              <option value="ru">Russian</option>
-              <option value="zh">Chinese</option>
-              <option value="ja">Japanese</option>
-              <option value="ko">Korean</option>
-            </select>
-          </div>
-          <div class="control control-toggle">
-            <label for="diarizeToggle">Detect speakers</label>
-            <label class="switch">
-              <input type="checkbox" id="diarizeToggle" checked />
-              <span></span>
-            </label>
-          </div>
+          <p class="tip">Tip: if you know how many people are talking, pick it under <b>Speakers</b>. That makes speaker labels much more accurate.</p>
         </div>
       </section>
 
       <!-- ===== PROCESSING ===== -->
       <section class="panel progress hidden" id="progressPanel">
         <div class="file-row">
+          <div class="file-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </div>
           <div class="file-meta">
-            <div class="file-name mono" id="fileName">file.mp3</div>
+            <div class="file-name" id="fileName">file.mp3</div>
             <div class="file-sub mono" id="fileSub">—</div>
           </div>
           <button class="btn btn-ghost" id="cancelBtn" type="button">Cancel</button>
         </div>
-        <canvas id="wave" class="wave" height="80"></canvas>
-        <ol class="steps" id="steps">
-          <li data-step="decode"><span class="step-dot"></span>Decoding audio</li>
-          <li data-step="load"><span class="step-dot"></span>Loading AI models <small class="mono" id="loadNote"></small></li>
-          <li data-step="run"><span class="step-dot"></span>Transcribing &amp; detecting speakers</li>
-          <li data-step="done"><span class="step-dot"></span>Done</li>
+
+        <div class="wave-wrap">
+          <canvas id="wave" class="wave" height="96"></canvas>
+          <div class="wave-sweep" id="waveSweep"></div>
+        </div>
+
+        <ol class="stepper" id="steps">
+          <li data-step="decode"><span class="st-dot"></span><span class="st-label">Read audio</span></li>
+          <li data-step="load"><span class="st-dot"></span><span class="st-label">Load AI</span></li>
+          <li data-step="speakers"><span class="st-dot"></span><span class="st-label">Find speakers</span></li>
+          <li data-step="run"><span class="st-dot"></span><span class="st-label">Transcribe</span></li>
+          <li data-step="done"><span class="st-dot"></span><span class="st-label">Done</span></li>
         </ol>
+
+        <div class="readout">
+          <div>
+            <div class="readout-stage" id="stageLabel">Reading audio</div>
+            <div class="status mono" id="statusLine"></div>
+          </div>
+          <div class="readout-num">
+            <span class="pct mono" id="pctNum">0<small>%</small></span>
+            <span class="eta mono" id="etaText"></span>
+          </div>
+        </div>
+        <div class="bar"><i id="pctBar"></i></div>
         <div class="downloads" id="downloads"></div>
-        <div class="status mono" id="statusLine"></div>
       </section>
 
       <!-- ===== RESULTS ===== -->
-      <section class="panel results hidden" id="resultsPanel">
-        <div class="results-head">
-          <div>
-            <h2>Transcript</h2>
-            <div class="results-sub mono" id="resultsSub"></div>
+      <section class="results hidden" id="resultsPanel">
+        <div class="panel res-head">
+          <div class="res-title">
+            <h2 id="resTitle">Transcript</h2>
+            <div class="meta-chips" id="resMeta"></div>
           </div>
-          <div class="results-actions">
-            <button class="btn btn-ghost" id="copyBtn" type="button">Copy</button>
-            <button class="btn btn-ghost" id="txtBtn" type="button">.txt</button>
-            <button class="btn btn-ghost" id="srtBtn" type="button">.srt</button>
+          <div class="res-actions">
+            <label class="search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input type="search" id="searchInput" placeholder="Search transcript" autocomplete="off" />
+              <span class="search-count mono" id="searchCount"></span>
+            </label>
+            <div class="btn-group">
+              <button class="btn btn-ghost" id="copyBtn" type="button" title="Copy as text">Copy</button>
+              <button class="btn btn-ghost" id="txtBtn" type="button" title="Download .txt">.txt</button>
+              <button class="btn btn-ghost" id="srtBtn" type="button" title="Download subtitles">.srt</button>
+            </div>
             <button class="btn btn-primary" id="newBtn" type="button">New file</button>
           </div>
         </div>
-        <div class="speakers" id="speakerLegend"></div>
-        <p class="hint">Click a speaker name to rename it everywhere. Click a line to play it.</p>
-        <audio id="player" controls class="player"></audio>
-        <div class="transcript" id="transcript"></div>
+
+        <div class="panel timeline-card">
+          <div class="card-label mono">Speaker timeline <span>click to jump</span></div>
+          <div class="timeline" id="timeline">
+            <canvas id="timelineCanvas"></canvas>
+            <div class="playhead" id="playhead"></div>
+            <div class="tl-hover mono" id="tlHover"></div>
+          </div>
+        </div>
+
+        <div class="res-body">
+          <aside class="panel speakers-card">
+            <div class="card-label mono">Speakers <span id="spkCount"></span></div>
+            <div class="speakers" id="speakerList"></div>
+            <p class="hint">Rename people here. To fix a wrong label, click the name above any paragraph.</p>
+          </aside>
+          <div class="panel transcript-card">
+            <div class="transcript" id="transcript"></div>
+          </div>
+        </div>
+
+        <div class="playerbar" id="playerbar">
+          <button class="pb-btn" id="backBtn" type="button" title="Back 10 s (←)">
+            <svg viewBox="0 0 24 24"><path d="M11 6 5 12l6 6M19 6l-6 6 6 6"/></svg>
+          </button>
+          <button class="pb-play" id="playBtn" type="button" title="Play / pause (space)">
+            <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="i-pause" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+          </button>
+          <button class="pb-btn" id="fwdBtn" type="button" title="Forward 10 s (→)">
+            <svg viewBox="0 0 24 24"><path d="m13 6 6 6-6 6M5 6l6 6-6 6"/></svg>
+          </button>
+          <span class="pb-time mono" id="pbTime">0:00 / 0:00</span>
+          <input type="range" class="pb-seek" id="pbSeek" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+          <button class="pb-chip mono" id="speedBtn" type="button" title="Playback speed">1×</button>
+          <button class="pb-chip mono on" id="followBtn" type="button" title="Auto-scroll to the current line">Follow</button>
+        </div>
       </section>
 
       <section class="panel error hidden" id="errorPanel">
@@ -141,8 +222,11 @@
       </section>
     </main>
 
+    <audio id="player" preload="metadata"></audio>
+    <div class="menu hidden" id="menu" role="menu"></div>
+
     <footer class="foot mono">
-      Powered by Whisper + pyannote via Transformers.js · models download once (cached) · your audio never leaves this device
+      Whisper + pyannote + WeSpeaker via Transformers.js · models download once, then cached · your audio never leaves this device
     </footer>
 
     <script type="module" src="/src/main.js"></script>

@@ -8,15 +8,29 @@ speakers, click any line to play it, and export as `.txt` or `.srt`.
 
 ## How it works
 
-- **pyannote segmentation 3.0** first works out who is speaking when (seconds per hour of audio).
-- The audio is cut into speaker turns (silence is skipped) and **Whisper** (OpenAI, via [Transformers.js](https://github.com/huggingface/transformers.js)) transcribes many turns at once in batches. This is several times faster than sliding a window over the whole file, and every line already has its speaker.
-- With "Auto-detect" the language is detected by the model itself.
-- Both models run inside a Web Worker on your device (WebGPU when available, CPU/WASM otherwise).
-  Nothing is uploaded anywhere. Models are downloaded once from Hugging Face and cached by the browser.
-- Short files are decoded by the browser itself. Long recordings (15+ minutes) and unusual formats are
-  converted by FFmpeg compiled to WebAssembly (`public/ffmpeg/`, one-time ~32 MB download), so an
-  hour-long voice message works. Speaker detection runs in 4-minute windows that are stitched together,
-  so memory stays flat no matter how long the file is.
+Everything runs in a Web Worker on your device (WebGPU when available, CPU/WASM otherwise). Nothing is
+uploaded. Models download once from Hugging Face and are cached by the browser.
+
+1. **Find speech** — pyannote segmentation 3.0 runs on 10-second chunks and marks where each (local) voice speaks.
+2. **Voice fingerprints** — WeSpeaker ResNet34 turns each voice in each chunk into a 256-number embedding.
+3. **Group into speakers** — average-linkage clustering on cosine distance groups the fingerprints across the
+   whole file, so a person keeps the same label even after being silent for an hour. If you tell it how many
+   people there are, it stops at exactly that many. Voices too brief to fingerprint are labelled **Unknown**.
+4. **Transcribe** — the audio is cut into speaker turns (silence skipped) and **Whisper** transcribes many turns
+   at once in batches. Each turn already knows its speaker.
+
+Long recordings (15+ minutes) and unusual formats are converted with FFmpeg compiled to WebAssembly
+(`public/ffmpeg/`, one-time ~32 MB download).
+
+On a laptop GPU a 1.5-hour, 5-person meeting takes about 2½ minutes with the base model.
+
+## In the app
+
+- Speaker timeline — click anywhere to jump there
+- Rename speakers; click the name above any paragraph to fix a wrong label; merge two speakers
+- Search (`/` to focus, Enter / Shift+Enter to step through matches)
+- Player: space to play/pause, ← / → to skip, speed control, auto-follow
+- Export as .txt or .srt
 
 ## Run locally
 
