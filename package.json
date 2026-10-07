@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "eval:build": "vite build --mode eval --outDir dist-eval && node accuracy/copy-testset.mjs dist-eval",
+    "eval:serve": "vite preview --outDir dist-eval --port 4174 --strictPort",
+    "accuracy:score": "node accuracy/score.mjs"
   },
   "devDependencies": {
     "vite": "^8.3.0"

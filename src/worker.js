@@ -1,17 +1,28 @@
-// Runs entirely in a Web Worker so the page stays responsive.
+// Runs entirely in a Web Worker so the page stays responsive. Audio never leaves the device.
 //
-// Pipeline (same idea as pyannote's speaker-diarization-3.1, then Whisper on top):
+// Pipeline:
+//   0. analyse the recording (level, noise, clipping) and clean a processing copy
+//      (DC offset, 70 Hz high-pass, level normalisation) — see engine/preprocess.js
 //   1. pyannote segmentation on 10 s chunks  -> where speech is and which *local* voice (≤3 per chunk)
 //   2. WeSpeaker ResNet34 voice fingerprint  -> one embedding per (chunk, local voice)
 //   3. agglomerative clustering of embeddings -> global speakers across the whole file
-//   4. cut the audio into speaker turns (silence skipped), Whisper transcribes them in batches
+//   4. cut the audio into speaker turns (silence skipped); turns longer than Whisper's 30 s window
+//      are split at a pause, or — if there is no pause — with a 1 s overlap that is de-duplicated
+//   5. language: detected from up to 8 clips spread across the file; mixed-language recordings let
+//      Whisper pick per turn among the detected languages
+//   6. Whisper transcribes the turns in batches (optionally primed with "important words")
+//   7. Best Accuracy: turns Whisper itself was unsure about (avg log-prob, repetition) are retried
 import {
   pipeline,
   AutoProcessor,
   AutoModel,
   AutoModelForAudioFrameClassification,
+  LogitsProcessorList,
   Tensor,
 } from '@huggingface/transformers';
+import { analyzeAudio, preprocess } from './engine/preprocess.js';
+import { mergeOverlap } from './engine/merge.js';
+import { TokenLogprobRecorder, LanguageControl, compressionRatio } from './engine/decoding.js';
 
 const ASR_MODELS = {
   tiny: 'onnx-community/whisper-tiny',
@@ -36,9 +47,20 @@ const MIN_SPEAKER_S = 15; // a "speaker" needs this much speech (or 1% of the fi
 // Turn building
 const MIN_TURN_S = 0.3; // ignore blips shorter than this
 const MERGE_GAP_S = 1.5; // join same-speaker speech separated by less than this
-const MAX_TURN_S = 28; // Whisper's window is 30 s
+const MAX_TURN_S = 27.5; // Whisper's window is 30 s; leaves room for padding / overlap on both sides
+const MIN_SPLIT_S = 16; // when a turn must be split, look for the best pause between 16 s and 27.5 s
 const PAD_S = 0.2; // extra context around each clip
+const OVERLAP_S = 1.0; // when a split can't land on a pause, both pieces share this much audio
 const MIN_GAP_SPEECH_S = 1.0; // loud-but-unlabelled stretches shorter than this are ignored
+
+// Whisper's own quality signals (same thresholds as OpenAI's reference implementation)
+const LOGPROB_THRESHOLD = -1.0; // average token log-probability below this = model unsure
+const COMPRESSION_THRESHOLD = 2.4; // highly repetitive output ("the the the…") = likely hallucination
+const RETRY_TEMPERATURES = [0.2, 0.5];
+const MAX_PROMPT_TOKENS = 100; // "important words" prompt budget (Whisper allows ~224)
+
+// Every language Whisper knows; filtered against the loaded tokenizer.
+const WHISPER_LANGS = 'en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue'.split(' ');
 
 // Whisper sometimes "hears" these in near-silence.
 const HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|\.+|subtitles by .*|please subscribe.*)$/i;
@@ -98,8 +120,14 @@ async function detectDevice(forceCPU = false) {
   return device;
 }
 
+// Weights per model. large-v3-turbo can use 4-bit weights with fp16 maths (q4f16, ~565 MB download)
+// instead of fp16 encoder + q4 decoder (~1.6 GB); the choice was made by measuring WER, see README.
+let turboVariant = 'q4f16';
 function asrOptions(modelKey, dev) {
   if (dev === 'webgpu') {
+    if (modelKey === 'turbo' && turboVariant === 'q4f16' && hasF16) {
+      return { device: 'webgpu', dtype: { encoder_model: 'q4f16', decoder_model_merged: 'q4f16' } };
+    }
     return {
       device: 'webgpu',
       dtype: {
@@ -109,6 +137,14 @@ function asrOptions(modelKey, dev) {
     };
   }
   return { device: 'wasm', dtype: 'q8' };
+}
+
+// Which Whisper model a mode uses. On CPU, large-v3-turbo needs minutes per 30 s of audio, so the
+// strongest practical model there is "small".
+export function resolveModel(mode, dev, override) {
+  if (override) return override === 'turbo' && dev !== 'webgpu' ? 'small' : override;
+  if (mode === 'fast') return 'base';
+  return dev === 'webgpu' ? 'turbo' : 'small';
 }
 
 // Try WebGPU first, fall back to CPU if this GPU/driver can't run the model.
@@ -125,7 +161,7 @@ async function loadOnBestDevice(load, gpuOpts, cpuOpts) {
 
 async function loadModels(modelKey, diarize, progress_callback) {
   let dev = await detectDevice();
-  const key = `${modelKey}:${dev}`;
+  const key = `${modelKey}:${dev}:${turboVariant}`;
   if (asrKey !== key) {
     asr = null;
     try {
@@ -140,6 +176,7 @@ async function loadModels(modelKey, diarize, progress_callback) {
         console.warn('WebGPU model load failed:', err);
         dev = device = 'wasm';
         gpuReason = 'load-failed';
+        modelKey = resolveModel(null, dev, modelKey); // turbo is impractical on CPU
         asr = await pipeline('automatic-speech-recognition', ASR_MODELS[modelKey], {
           ...asrOptions(modelKey, dev),
           progress_callback,
@@ -148,7 +185,8 @@ async function loadModels(modelKey, diarize, progress_callback) {
         throw err;
       }
     }
-    asrKey = `${modelKey}:${dev}`;
+    asrKey = `${modelKey}:${dev}:${turboVariant}`;
+    asr.modelKey = modelKey;
   }
   if (diarize && !segModel) {
     segProcessor = await AutoProcessor.from_pretrained(SEG_MODEL, { progress_callback });
@@ -480,24 +518,36 @@ function subtract(run, speech) {
   return out.filter((x) => x.end - x.start >= MIN_GAP_SPEECH_S);
 }
 
-function splitLong(turn, rms, out) {
+// Turns longer than Whisper's window are split. Prefer the quietest moment (300 ms average) between
+// 16 s and 27.5 s into the turn. If even that moment is clearly speech, the cut is "hard": both
+// pieces then include OVERLAP_S of shared audio and the duplicated words are removed after
+// transcription (engine/merge.js), so a word sitting on the cut isn't lost.
+function splitLong(turn, rms, silenceRms, out) {
   let { start } = turn;
+  let hardStart = false;
   while (turn.end - start > MAX_TURN_S) {
-    // cut at the quietest 100 ms frame in the last 5 s of the window
-    const from = Math.floor((start + MAX_TURN_S - 5) * 10);
-    const to = Math.floor((start + MAX_TURN_S) * 10);
+    const from = Math.floor((start + MIN_SPLIT_S) * 10);
+    const to = Math.min(rms.length - 2, Math.floor((start + MAX_TURN_S) * 10));
     let best = to;
-    for (let f = from; f < to && f < rms.length; f++) if (best >= rms.length || rms[f] < rms[best]) best = f;
+    let bestRms = Infinity;
+    for (let f = Math.max(1, from); f <= to; f++) {
+      const avg = (rms[f - 1] + rms[f] + rms[f + 1]) / 3;
+      if (avg < bestRms) { bestRms = avg; best = f; }
+    }
     const cut = Math.min(best / 10, start + MAX_TURN_S);
-    out.push({ ...turn, start, end: cut });
+    const hard = !(bestRms <= silenceRms);
+    out.push({ ...turn, start, end: cut, hardStart, hardEnd: hard });
+    hardStart = hard;
     start = cut;
   }
-  out.push({ ...turn, start });
+  out.push({ ...turn, start, hardStart, hardEnd: false });
 }
 
 function buildTurns(audio, segments) {
   const rms = frameEnergy(audio);
   const runs = energyRuns(rms);
+  const sorted = Float32Array.from(rms).sort();
+  const silenceRms = Math.max((sorted[Math.floor(sorted.length * 0.1)] || 0) * 2, 0.003);
 
   let items;
   if (segments) {
@@ -518,7 +568,7 @@ function buildTurns(audio, segments) {
   }
 
   const turns = [];
-  for (const t of merged.filter((t) => t.end - t.start >= MIN_TURN_S)) splitLong(t, rms, turns);
+  for (const t of merged.filter((t) => t.end - t.start >= MIN_TURN_S)) splitLong(t, rms, silenceRms, turns);
   return turns;
 }
 
@@ -549,75 +599,220 @@ async function featuresFor(clips) {
   return new Tensor('float32', data, [clips.length, mels, frames]);
 }
 
+// Audio for one turn: a little context on both sides, or the full overlap at a hard split.
+// Times stay in original-recording seconds; the clip is just a view into the same samples.
 const clipFor = (audio, t) =>
-  audio.subarray(Math.max(0, Math.floor((t.start - PAD_S) * SR)), Math.min(audio.length, Math.ceil((t.end + PAD_S) * SR)));
+  audio.subarray(
+    Math.max(0, Math.floor((t.start - (t.hardStart ? OVERLAP_S : PAD_S)) * SR)),
+    Math.min(audio.length, Math.ceil((t.end + (t.hardEnd ? OVERLAP_S : PAD_S)) * SR)),
+  );
+const clipSeconds = (t) => t.end - t.start + (t.hardStart ? OVERLAP_S : PAD_S) + (t.hardEnd ? OVERLAP_S : PAD_S);
 
-// Ask the model which language it hears (it predicts a language token right after <|startoftranscript|>).
-async function detectLanguage(audio, turns) {
+// Token ids of every language the loaded model supports.
+function languageTokens(tok) {
+  const unk = tok.unk_token_id ?? tok.model?.tokens_to_ids?.get?.('<|endoftext|>');
+  const map = new Map(); // id -> code
+  for (const code of WHISPER_LANGS) {
+    const id = tok.convert_tokens_to_ids(`<|${code}|>`);
+    if (id != null && id !== unk && !map.has(id)) map.set(id, code);
+  }
+  return map;
+}
+
+// "Important words" become a Whisper prompt: <|startofprev|> + " Hadi Salame, SparkScribe, …"
+// which biases spelling towards them (same mechanism as OpenAI's initial_prompt).
+function vocabularyPrompt(tok, words) {
+  const list = (words || []).map((w) => String(w).trim()).filter(Boolean);
+  if (!list.length) return [];
+  let ids = tok.encode(' ' + list.join(', ') + '.', { add_special_tokens: false });
+  if (ids.length > MAX_PROMPT_TOKENS) ids = ids.slice(-MAX_PROMPT_TOKENS);
+  return [tokenId(tok, '<|startofprev|>'), ...ids];
+}
+
+// Language: sample up to 8 clips spread across the recording (longest turn in each eighth),
+// ask Whisper for its language probabilities on each, and weight them by clip length.
+// If a second language holds a real share (≥15% of the evidence, or one clip that is clearly
+// in it), the recording is treated as mixed and Whisper picks per turn among those languages.
+async function detectLanguages(audio, turns, langIds) {
   const tok = asr.tokenizer;
-  const sample = [...turns].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, 3);
-  if (!sample.length) return 'en';
+  const total = audio.length / SR;
+  const buckets = new Map();
+  for (const t of turns) {
+    const b = Math.min(7, Math.floor((t.start / total) * 8));
+    const cur = buckets.get(b);
+    if (!cur || t.end - t.start > cur.end - cur.start) buckets.set(b, t);
+  }
+  const sample = [...buckets.values()].filter((t) => t.end - t.start >= 1.5);
+  if (!sample.length) sample.push(...[...turns].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, 3));
+  if (!sample.length) return { codes: ['en'], scores: {} };
+
+  const allIds = [...langIds.keys()];
+  const control = new LanguageControl(1, allIds, [tokenId(tok, '<|transcribe|>'), tokenId(tok, '<|notimestamps|>')]);
+  const processors = new LogitsProcessorList();
+  processors.push(control);
   const inputs = await featuresFor(sample.map((t) => clipFor(audio, t)));
-  const out = await asr.model.generate({
+  await asr.model.generate({
     inputs,
     decoder_input_ids: sample.map(() => [tokenId(tok, '<|startoftranscript|>')]),
     max_new_tokens: 1,
-    begin_suppress_tokens: null, // its index is derived from the (batched) prompt length
+    begin_suppress_tokens: null,
+    logits_processor: processors,
   });
-  const votes = new Map();
-  for (const row of out.tolist()) {
-    const m = /^<\|([a-z]{2,3})\|>$/.exec(tok.decode([row[row.length - 1]], { skip_special_tokens: false }));
-    if (m) votes.set(m[1], (votes.get(m[1]) || 0) + 1);
-  }
-  return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'en';
+
+  const score = new Map();
+  let weightSum = 0;
+  const confident = new Set();
+  sample.forEach((t, i) => {
+    const w = Math.min(30, t.end - t.start);
+    weightSum += w;
+    const probs = control.langProbs[i];
+    if (!probs) return;
+    for (const [id, p] of probs) score.set(id, (score.get(id) || 0) + p * w);
+    const [topId, topP] = [...probs].sort((a, b) => b[1] - a[1])[0];
+    if (topP >= 0.6 && t.end - t.start >= 3) confident.add(topId);
+  });
+  const ranked = [...score].map(([id, s]) => [id, s / weightSum]).sort((a, b) => b[1] - a[1]);
+  const picked = ranked.filter(([id, share], k) => k === 0 || share >= 0.15 || confident.has(id)).slice(0, 3);
+  return {
+    codes: picked.map(([id]) => langIds.get(id)),
+    scores: Object.fromEntries(ranked.slice(0, 5).map(([id, s]) => [langIds.get(id), +s.toFixed(3)])),
+  };
 }
 
-async function transcribeTurns(audio, turns, language, batchSize) {
+// One batched Whisper pass over `idx` turns. Returns text + Whisper's own confidence per turn.
+async function decodeBatch(audio, turns, idx, { languages, langIds, vocabIds, temperature = 0 }) {
   const tok = asr.tokenizer;
-  const prompt = [
-    tokenId(tok, '<|startoftranscript|>'),
-    tokenId(tok, `<|${language}|>`),
-    tokenId(tok, '<|transcribe|>'),
-    tokenId(tok, '<|notimestamps|>'),
-  ];
+  const sot = tokenId(tok, '<|startoftranscript|>');
+  const transcribe = tokenId(tok, '<|transcribe|>');
+  const noTs = tokenId(tok, '<|notimestamps|>');
+  const fixed = languages.length === 1;
+  const prompt = fixed
+    ? [...vocabIds, sot, tokenId(tok, `<|${languages[0]}|>`), transcribe, noTs]
+    : [...vocabIds, sot]; // language / task chosen inside generation by LanguageControl
+  const forced = fixed ? 0 : 3;
+
+  const processors = new LogitsProcessorList();
+  let control = null;
+  if (!fixed) {
+    const ids = languages.map((c) => tokenId(tok, `<|${c}|>`));
+    control = new LanguageControl(prompt.length, ids, [transcribe, noTs]);
+    processors.push(control);
+  }
+  const recorder = new TokenLogprobRecorder(tok.eos_token_id ?? tokenId(tok, '<|endoftext|>'), prompt.length + forced, idx.length, temperature);
+  processors.push(recorder);
+
+  const longest = Math.max(...idx.map((k) => clipSeconds(turns[k])));
+  const maxNew = Math.min(447 - prompt.length, Math.ceil(longest * 9) + 24 + forced); // runaway-repetition guard
+  const inputs = await featuresFor(idx.map((k) => clipFor(audio, turns[k])));
+  const out = await asr.model.generate({
+    inputs,
+    decoder_input_ids: idx.map(() => prompt),
+    begin_suppress_tokens: null, // its index is derived from the (batched) prompt length
+    max_new_tokens: maxNew,
+    logits_processor: processors,
+    ...(temperature > 0 ? { do_sample: true, temperature, top_k: 0 } : {}),
+  });
+  const rows = out.tolist();
+  const avg = recorder.finish(rows);
+  const eos = BigInt(tok.eos_token_id ?? tokenId(tok, '<|endoftext|>'));
+
+  return Promise.all(
+    idx.map(async (k, j) => {
+      const row = rows[j];
+      const gen = row.slice(prompt.length);
+      const text = tok.decode(gen, { skip_special_tokens: true }).trim();
+      const language = fixed ? languages[0] : langIds.get(Number(gen[0])) || languages[0];
+      const hitLimit = !gen.includes(eos) && gen.length >= maxNew;
+      return { text, avgLogprob: avg[j], compression: await compressionRatio(text), language, hitLimit };
+    }),
+  );
+}
+
+const normWords = (s) => s.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}'\s]+/gu, ' ').split(/\s+/).filter(Boolean);
+
+function needsRetry(r, turn, vocabWords) {
+  if (!r.text) return false;
+  if (r.hitLimit || r.compression > COMPRESSION_THRESHOLD || r.avgLogprob < LOGPROB_THRESHOLD) return true;
+  // a short clip that comes back as just the "important words" is the prompt leaking, not speech
+  if (vocabWords.size && turn.end - turn.start < 4) {
+    const w = normWords(r.text);
+    if (w.length >= 2 && w.every((x) => vocabWords.has(x))) return true;
+  }
+  return false;
+}
+
+// Better = no repetition problem first, then higher average log-probability.
+const betterThan = (a, b) => {
+  const okA = a.compression <= COMPRESSION_THRESHOLD && !a.hitLimit;
+  const okB = b.compression <= COMPRESSION_THRESHOLD && !b.hitLimit;
+  if (okA !== okB) return okA;
+  return a.avgLogprob > b.avgLogprob;
+};
+
+async function transcribeTurns(audio, turns, opts) {
+  const { batchSize, secondPass, onProgress } = opts;
   // Longest first, so each batch holds turns of similar length (a batch takes as long as its longest member).
   const order = turns.map((_, i) => i).sort((a, b) => turns[b].end - turns[b].start - (turns[a].end - turns[a].start));
   const total = turns.reduce((s, t) => s + (t.end - t.start), 0);
-  const texts = new Array(turns.length).fill('');
+  const results = new Array(turns.length);
   let doneSec = 0;
-  const prof = { feat: 0, gen: 0, steps: 0, maxed: 0, batches: 0 };
 
   for (let i = 0; i < order.length; i += batchSize) {
     const idx = order.slice(i, i + batchSize);
-    const longest = turns[idx[0]].end - turns[idx[0]].start + 2 * PAD_S;
-    let t = performance.now();
-    const inputs = await featuresFor(idx.map((k) => clipFor(audio, turns[k])));
-    prof.feat += performance.now() - t;
-    t = performance.now();
-    const maxNew = Math.min(440, Math.ceil(longest * 9) + 24); // guard against runaway repetition
-    const out = await asr.model.generate({
-      inputs,
-      decoder_input_ids: idx.map(() => prompt), // one row per clip
-      begin_suppress_tokens: null, // its index is derived from the (batched) prompt length
-      max_new_tokens: maxNew,
-    });
-    prof.gen += performance.now() - t;
-    prof.batches++;
-    prof.steps += out.dims[1] - prompt.length;
-    if (out.dims[1] - prompt.length >= maxNew) prof.maxed++;
-    const decoded = tok.batch_decode(out, { skip_special_tokens: true });
-    idx.forEach((k, j) => {
-      const text = decoded[j].trim();
-      const dur = turns[k].end - turns[k].start;
-      texts[k] = dur < 3 && HALLUCINATIONS.test(text) ? '' : text;
-    });
+    const batch = await decodeBatch(audio, turns, idx, opts);
+    idx.forEach((k, j) => { results[k] = batch[j]; });
     doneSec += idx.reduce((s, k) => s + (turns[k].end - turns[k].start), 0);
-    post({ type: 'run-progress', done: doneSec, total });
-    status(`Transcribing… ${Math.round((doneSec / total) * 100)}% (${fmt(doneSec)} of ${fmt(total)} of speech)`);
+    onProgress(doneSec, total);
   }
-  const durs = turns.map((t) => t.end - t.start).sort((a, b) => a - b);
-  console.log('[timing] whisper profile', JSON.stringify({ ...prof, feat: Math.round(prof.feat), gen: Math.round(prof.gen), turns: turns.length, under2s: durs.filter((d) => d < 2).length, median: durs[durs.length >> 1]?.toFixed(1) }));
-  return texts;
+
+  const stats = { retried: 0, improved: 0 };
+  if (secondPass) {
+    const vocabWords = new Set(normWords((opts.vocabulary || []).join(' ')));
+    let flagged = order.filter((k) => needsRetry(results[k], turns[k], vocabWords));
+    stats.retried = flagged.length;
+    if (flagged.length) {
+      post({ type: 'stage', stage: 'review' });
+      const flaggedSec = flagged.reduce((s, k) => s + (turns[k].end - turns[k].start), 0);
+      let reviewed = 0;
+      const attempts = [
+        ...(opts.vocabIds.length ? [{ temperature: 0, vocabIds: [] }] : []), // without the prompt
+        ...RETRY_TEMPERATURES.map((temperature) => ({ temperature })),
+      ];
+      for (const [n, attempt] of attempts.entries()) {
+        if (!flagged.length) break;
+        status(`Re-checking ${flagged.length} difficult part${flagged.length === 1 ? '' : 's'} (attempt ${n + 1} of ${attempts.length})…`);
+        for (let i = 0; i < flagged.length; i += batchSize) {
+          const idx = flagged.slice(i, i + batchSize);
+          const batch = await decodeBatch(audio, turns, idx, { ...opts, ...attempt });
+          idx.forEach((k, j) => {
+            if (batch[j].text && betterThan(batch[j], results[k])) {
+              if (!results[k].retriedBetter) stats.improved++;
+              results[k] = { ...batch[j], retriedBetter: true };
+            }
+          });
+          if (n === 0) {
+            reviewed += idx.reduce((s, k) => s + (turns[k].end - turns[k].start), 0);
+            post({ type: 'run-progress', done: reviewed, total: flaggedSec, part: 'review' });
+          }
+        }
+        flagged = flagged.filter((k) => needsRetry(results[k], turns[k], vocabWords));
+      }
+    }
+  }
+  return { results, stats };
+}
+
+// Join hard-split pieces of the same turn, dropping the words transcribed twice in the overlap.
+function mergeSplitPieces(turns, results) {
+  let removed = 0;
+  for (let i = 0; i + 1 < turns.length; i++) {
+    if (!turns[i].hardEnd || !turns[i + 1].hardStart || turns[i].speaker !== turns[i + 1].speaker) continue;
+    const m = mergeOverlap(results[i].text, results[i + 1].text);
+    results[i] = { ...results[i], text: m.a };
+    results[i + 1] = { ...results[i + 1], text: m.b };
+    removed += m.removed;
+  }
+  return removed;
 }
 
 self.addEventListener('message', async (e) => {
@@ -628,40 +823,121 @@ self.addEventListener('message', async (e) => {
   }
   if (type !== 'run') return;
 
-  const { audio, model, language, diarize: wantDiarize, numSpeakers = 0 } = e.data;
+  const {
+    audio,
+    mode = 'best',
+    model: modelOverride = '',
+    language = '',
+    diarize: wantDiarize = true,
+    numSpeakers = 0,
+    vocabulary = [],
+    preprocess: doPreprocess = true,
+    secondPass,
+  } = e.data;
   debugVoices = !!e.data.debug;
+  if (e.data.turboVariant) turboVariant = e.data.turboVariant;
   try {
+    // 0. analyse + clean the processing copy (the original file is untouched)
+    post({ type: 'stage', stage: 'analyze' });
+    const quality = analyzeAudio(audio);
+    const prep = doPreprocess ? preprocess(audio, quality) : null;
+    post({ type: 'quality', quality, preprocessing: prep });
+
+    const dev0 = await detectDevice();
+    const modelKey = resolveModel(mode, dev0, modelOverride);
     post({ type: 'stage', stage: 'load' });
-    const dev = await loadModels(model, wantDiarize, (p) => post({ type: 'progress', ...p }));
+    const dev = await loadModels(modelKey, wantDiarize, (p) => post({ type: 'progress', ...p }));
     post({ type: 'device', device: dev, reason: gpuReason });
 
     lap0.t = performance.now();
     let segments = null;
-    if (wantDiarize) {
-      post({ type: 'stage', stage: 'speakers' });
-      segments = await diarize(audio, numSpeakers);
-    }
+    post({ type: 'stage', stage: 'speakers' });
+    if (wantDiarize) segments = await diarize(audio, numSpeakers);
+    else status('Detecting speech…');
 
-    post({ type: 'stage', stage: 'run' });
     const turns = buildTurns(audio, segments);
     if (!turns.length) throw new Error('No speech was found in this file.');
 
-    let lang = language;
-    if (!lang) {
+    post({ type: 'stage', stage: 'run' });
+    const tok = asr.tokenizer;
+    const langIds = languageTokens(tok);
+    let languages;
+    let langScores = null;
+    if (language) {
+      languages = [language]; // the user's choice is always respected
+    } else if (Array.isArray(e.data.languages) && e.data.languages.length) {
+      languages = e.data.languages; // testing / accuracy lab: force a candidate set (exercises per-turn choice)
+    } else {
       status('Detecting language…');
-      lang = await detectLanguage(audio, turns);
-      post({ type: 'language', language: lang });
-      lap(`language=${lang}`);
+      const det = await detectLanguages(audio, turns, langIds);
+      languages = det.codes;
+      langScores = det.scores;
+      post({ type: 'language', language: languages[0], languages });
+      lap(`language=${languages.join('+')} ${JSON.stringify(langScores)}`);
     }
 
-    const batchSize = dev === 'webgpu' ? (model === 'turbo' || model === 'small' ? 4 : 16) : 2;
-    const texts = await transcribeTurns(audio, turns, lang, batchSize);
-    lap(`whisper (${turns.length} turns)`);
+    const vocabIds = vocabularyPrompt(tok, vocabulary);
+    const heavy = asr.modelKey === 'turbo' || asr.modelKey === 'small';
+    const batchSize = dev === 'webgpu' ? (heavy ? 4 : 16) : 2;
+    const { results, stats } = await transcribeTurns(audio, turns, {
+      batchSize,
+      languages,
+      langIds,
+      vocabIds,
+      vocabulary,
+      secondPass: secondPass ?? mode === 'best',
+      onProgress: (done, total) => {
+        post({ type: 'run-progress', done, total });
+        status(`Transcribing… ${Math.round((done / total) * 100)}% (${fmt(done)} of ${fmt(total)} of speech)`);
+      },
+    });
+    const overlapWordsRemoved = mergeSplitPieces(turns, results);
+    lap(`whisper (${turns.length} turns, retried ${stats.retried}, improved ${stats.improved})`);
 
-    const lines = turns
-      .map((t, i) => ({ start: t.start, end: t.end, speaker: t.speaker, text: texts[i] }))
-      .filter((l) => l.text);
-    post({ type: 'complete', lines, language: lang, ms: performance.now() - lap0.t, device: dev });
+    const lines = [];
+    turns.forEach((t, i) => {
+      const r = results[i];
+      const dur = t.end - t.start;
+      if (!r.text || (dur < 3 && HALLUCINATIONS.test(r.text))) return;
+      lines.push({
+        start: t.start,
+        end: t.end,
+        speaker: t.speaker,
+        text: r.text,
+        language: r.language,
+        // Whisper's own signal, after any retry. Shown as "worth double-checking", never as a percentage.
+        uncertain: r.avgLogprob < LOGPROB_THRESHOLD,
+      });
+    });
+    const usedLangs = [...new Set(lines.map((l) => l.language))];
+    post({
+      type: 'complete',
+      lines,
+      language: languages.length === 1 ? languages[0] : usedLangs[0] || languages[0],
+      ms: performance.now() - lap0.t,
+      device: dev,
+      stats: {
+        mode,
+        model: asr.modelKey,
+        turboVariant: asr.modelKey === 'turbo' ? turboVariant : undefined,
+        languages: usedLangs,
+        languageScores: langScores,
+        vocabularyTokens: Math.max(0, vocabIds.length - 1),
+        turns: turns.length,
+        hardSplits: turns.filter((t) => t.hardEnd).length,
+        cleanSplits: turns.filter((t, i) => i + 1 < turns.length && !t.hardEnd && turns[i + 1].speaker === t.speaker && Math.abs(turns[i + 1].start - t.end) < 1e-6).length,
+        overlapWordsRemoved,
+        retried: stats.retried,
+        improved: stats.improved,
+        uncertain: lines.filter((l) => l.uncertain).length,
+        confidence: (() => {
+          const v = results.filter((r) => r.text).map((r) => r.avgLogprob).sort((x, y) => x - y);
+          const c = results.map((r) => r.compression).sort((x, y) => y - x);
+          return v.length ? { min: +v[0].toFixed(3), p10: +v[Math.floor(v.length * 0.1)].toFixed(3), median: +v[v.length >> 1].toFixed(3), maxCompression: +c[0].toFixed(2) } : null;
+        })(),
+        preprocessing: prep,
+      },
+    });
   } catch (err) {
     post({ type: 'error', message: err?.message || String(err), stack: err?.stack });
   }

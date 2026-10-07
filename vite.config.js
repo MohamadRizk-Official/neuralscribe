@@ -12,7 +12,7 @@ const pages = {
 };
 const cleanRoutes = new Set(['/auth', '/auth/callback', '/library', '/transcript']);
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // The Supabase settings live in Vercel as NEXT_PUBLIC_* (public, browser-safe values).
   // Only these prefixes are ever exposed to the browser bundle.
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
@@ -22,7 +22,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      input: Object.fromEntries(Object.entries(pages).map(([k, f]) => [k, resolve(import.meta.dirname, f)])),
+      // the accuracy lab (eval.html) is only built with `--mode eval`; it is never deployed
+      input: Object.fromEntries(
+        Object.entries(mode === 'eval' ? { ...pages, eval: 'eval.html' } : pages).map(([k, f]) => [k, resolve(import.meta.dirname, f)]),
+      ),
     },
   },
   plugins: [
@@ -37,4 +40,4 @@ export default defineConfig({
       },
     },
   ],
-});
+}));

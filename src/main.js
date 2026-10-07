@@ -19,16 +19,24 @@ const els = {
   pbSeek: $('pbSeek'), speedBtn: $('speedBtn'), followBtn: $('followBtn'),
   errorPanel: $('errorPanel'), errorText: $('errorText'), retryBtn: $('retryBtn'),
   deviceChip: $('deviceChip'), menu: $('menu'), cpuNote: $('cpuNote'), cpuWhy: $('cpuWhy'),
+  modeInputs: [...document.querySelectorAll('input[name="mode"]')], modeNote: $('modeNote'),
+  advanced: $('advanced'), advSummary: $('advSummary'), vocabInput: $('vocabInput'),
+  qualityChip: $('qualityChip'), speakersStepLabel: $('speakersStepLabel'),
 };
 
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
 const UNKNOWN = 'Unknown';
 const UNKNOWN_COLOR = '#8a93b9';
-const RTL_LANGS = new Set(['ar', 'fa', 'ur', 'he', 'yi', 'ps', 'sd', 'ug']);
-const STEPS = ['decode', 'load', 'speakers', 'run', 'done'];
-const STAGE_LABEL = { decode: 'Reading audio', load: 'Loading AI models', speakers: 'Finding who is speaking', run: 'Transcribing', done: 'Done' };
+const STEPS = ['decode', 'analyze', 'load', 'speakers', 'run', 'review', 'done'];
+const STAGE_LABEL = {
+  decode: 'Preparing audio', analyze: 'Analyzing recording', load: 'Loading AI models', speakers: 'Finding who is speaking',
+  run: 'Transcribing', review: 'Re-checking difficult parts', done: 'Finalizing transcript',
+};
 // share of the overall progress bar each stage covers
-const STAGE_SPAN = { decode: [0, 8], load: [8, 20], speakers: [20, 34], run: [34, 100], done: [100, 100] };
+const STAGE_SPAN = { decode: [0, 6], analyze: [6, 8], load: [8, 18], speakers: [18, 32], run: [32, 92], review: [92, 99], done: [100, 100] };
+// one-time model downloads shown to the user (MB, rounded): Whisper + speaker models
+const DOWNLOAD_MB = { fast: { webgpu: 200, wasm: 110 }, best: { webgpu: 600, wasm: 280 } };
+const QUALITY_LABEL = { good: 'Good', fair: 'Fair', difficult: 'Difficult' };
 const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const DOTS = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>';
 
@@ -41,18 +49,48 @@ let run = null; // progress bookkeeping for the current file
 
 // ---------- settings memory (per browser, best-effort) ----------
 const PREF_KEY = 'neuralscribe.prefs';
+const modeValue = () => els.modeInputs.find((i) => i.checked)?.value || 'best';
+const vocabulary = () => els.vocabInput.value.split(/[,\n;]+/).map((w) => w.trim()).filter(Boolean).slice(0, 60);
 try {
   const p = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
-  if (p.model) els.modelSelect.value = p.model;
+  if (p.v === 2) { // older saved settings used model names as "accuracy"; start those users on the new defaults
+    if (p.mode) els.modeInputs.forEach((i) => { i.checked = i.value === p.mode; });
+    if (p.model !== undefined) els.modelSelect.value = p.model;
+    if (p.vocab) els.vocabInput.value = p.vocab;
+  }
   if (p.language !== undefined) els.langSelect.value = p.language;
   if (p.speakers) els.speakersSelect.value = p.speakers;
 } catch {}
 function savePrefs() {
   try {
-    localStorage.setItem(PREF_KEY, JSON.stringify({ model: els.modelSelect.value, language: els.langSelect.value, speakers: els.speakersSelect.value }));
+    localStorage.setItem(PREF_KEY, JSON.stringify({
+      v: 2, mode: modeValue(), model: els.modelSelect.value, language: els.langSelect.value,
+      speakers: els.speakersSelect.value, vocab: els.vocabInput.value,
+    }));
   } catch {}
 }
-[els.modelSelect, els.langSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', savePrefs));
+function updateSettingsUI() {
+  const lang = els.langSelect.value ? els.langSelect.selectedOptions[0].textContent : 'Auto language';
+  const sp = els.speakersSelect.value;
+  const speakers = sp === 'auto' ? 'Auto speakers' : sp === 'off' ? 'No speaker labels' : els.speakersSelect.selectedOptions[0].textContent;
+  const n = vocabulary().length;
+  els.advSummary.textContent = [lang, speakers, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
+  updateModeNote();
+}
+function updateModeNote() {
+  const dev = deviceInfo.dev;
+  if (!dev) { els.modeNote.textContent = ''; return; }
+  const mode = modeValue();
+  const custom = els.modelSelect.value;
+  const parts = [];
+  if (custom) parts.push('Using the model chosen in Advanced settings.');
+  else if (mode === 'best' && dev !== 'webgpu') parts.push('Without a GPU, Best Accuracy uses a lighter model so it finishes in reasonable time.');
+  if (!custom) parts.push(`First use downloads about ${DOWNLOAD_MB[mode][dev === 'webgpu' ? 'webgpu' : 'wasm']} MB of AI models once; after that they load from your browser's cache.`);
+  els.modeNote.textContent = parts.join(' ');
+}
+[els.modelSelect, els.langSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
+els.modeInputs.forEach((i) => i.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
+els.vocabInput.addEventListener('input', () => { savePrefs(); updateSettingsUI(); });
 
 // ---------- worker ----------
 function getWorker() {
@@ -74,6 +112,7 @@ function onWorkerMessage({ data }) {
     case 'status': onStatus(data.text); break;
     case 'progress': onDownload(data); break;
     case 'run-progress': setStagePct((data.done / data.total) * 100); break;
+    case 'quality': showQuality(data.quality, data.preprocessing); break;
     case 'language': if (state) state.language = data.language; break;
     case 'complete': onComplete(data); break;
     case 'debug': window.__dbg = data; break;
@@ -98,9 +137,10 @@ function setDevice(dev, reason) {
   const turbo = els.modelSelect.querySelector('option[value="turbo"]');
   if (turbo) {
     turbo.disabled = dev !== 'webgpu';
-    turbo.textContent = dev === 'webgpu' ? 'Best · large-v3 turbo' : 'Best · large-v3 turbo (needs a GPU)';
+    turbo.textContent = dev === 'webgpu' ? 'Whisper large-v3 turbo' : 'Whisper large-v3 turbo (needs a GPU)';
   }
-  if (dev !== 'webgpu' && els.modelSelect.value === 'turbo') els.modelSelect.value = 'small';
+  if (dev !== 'webgpu' && els.modelSelect.value === 'turbo') els.modelSelect.value = '';
+  updateSettingsUI();
 }
 
 const CPU_REASONS = {
@@ -117,7 +157,7 @@ function showDeviceInfo() {
     return;
   }
   const [title, body] = CPU_REASONS[deviceInfo.reason] || CPU_REASONS['no-webgpu'];
-  openInfo(els.deviceChip, title, `${body}<br><br>Everything still works on the CPU, just slower: <b>Balanced</b> runs about twice as fast as real time on a typical laptop, and <b>Accurate</b> is the best quality available without a GPU. <b>Best</b> needs a GPU.`);
+  openInfo(els.deviceChip, title, `${body}<br><br>Everything still works on the CPU, just slower. <b>Fast</b> runs about twice as fast as real time on a typical laptop; <b>Best Accuracy</b> uses a lighter model than it would on a GPU.`);
 }
 els.deviceChip.addEventListener('click', showDeviceInfo);
 els.deviceChip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showDeviceInfo(); } });
@@ -171,6 +211,8 @@ function setStage(stage) {
   run.stage = stage;
   run.stageStart = performance.now();
   run.stagePct = 0;
+  if (stage === 'review') els.steps.querySelector('[data-step="review"]').classList.remove('hidden');
+  layoutSteps();
   const idx = STEPS.indexOf(stage);
   els.steps.querySelectorAll('li').forEach((li) => {
     const i = STEPS.indexOf(li.dataset.step);
@@ -180,6 +222,7 @@ function setStage(stage) {
   els.stageLabel.textContent = STAGE_LABEL[stage] || '';
   els.etaText.textContent = '';
   if (stage === 'load') els.statusLine.textContent = 'First run downloads the AI models once; after that they load from cache.';
+  if (stage === 'speakers' && run.diarize === false) els.stageLabel.textContent = 'Detecting speech';
   renderPct();
 }
 function setStagePct(p) {
@@ -194,12 +237,45 @@ function renderPct() {
   els.pctNum.innerHTML = `${Math.floor(overall)}<small>%</small>`;
   els.pctBar.style.width = overall + '%';
   els.waveSweep.style.width = overall + '%';
-  if (run.stage === 'run' || run.stage === 'speakers') {
+  if (run.stage === 'run' || run.stage === 'speakers' || run.stage === 'review') {
     const elapsed = (performance.now() - run.stageStart) / 1000;
     const p = run.stagePct / 100;
     if (p > 0.03 && elapsed > 4) els.etaText.textContent = `≈ ${fmtDur(elapsed * (1 - p) / p)} left in this step`;
   }
 }
+function layoutSteps() {
+  const visible = [...els.steps.querySelectorAll('li')].filter((li) => !li.classList.contains('hidden')).length;
+  els.steps.style.gridTemplateColumns = `repeat(${visible}, 1fr)`;
+}
+
+// Audio quality: real measurements from the worker (level, noise floor, clipping). Echo isn't measured.
+function showQuality(q, prep) {
+  if (!q || !state) return;
+  state.quality = q;
+  state.preprocessing = prep;
+  const chip = els.qualityChip;
+  chip.className = `quality q-${q.rating}`;
+  chip.innerHTML = `<span class="q-dot"></span>Audio quality: <b>${QUALITY_LABEL[q.rating]}</b>${q.issues.length ? ` · ${esc(q.issues[0].toLowerCase())}` : ''}`;
+  chip.onclick = () => showQualityInfo(chip);
+}
+function showQualityInfo(anchor) {
+  const q = state?.quality;
+  if (!q) return;
+  const m = q.measured;
+  const rows = [
+    ['Speech level', `${m.speechLevelDb} dBFS`],
+    ['Background level', `${m.noiseLevelDb} dBFS`],
+    ['Speech-to-noise', m.snrDb >= 60 ? '60+ dB (no audible noise)' : `${m.snrDb} dB`],
+    ['Clipped audio', m.clippedPercent ? `${m.clippedPercent}% of samples` : 'none'],
+  ];
+  const prep = state.preprocessing;
+  const prepText = prep
+    ? `Before transcribing, a working copy was cleaned up: DC offset removed, rumble below ${prep.highpassHz} Hz filtered${prep.gainDb ? `, volume adjusted by ${prep.gainDb > 0 ? '+' : ''}${prep.gainDb} dB` : ''}. No noise removal is applied, and your original file is untouched.`
+    : '';
+  openInfo(anchor, `Audio quality: ${QUALITY_LABEL[q.rating]}`,
+    `${q.issues.length ? `<b>${q.issues.map(esc).join(', ')}.</b><br>` : 'No problems measured.<br>'}<br>${rows.map(([k, v]) => `${k}: <b>${v}</b>`).join('<br>')}<br><br>${prepText}<br><br><span style="color:var(--dim)">Measured from the audio itself. Echo and people talking over each other aren't measured.</span>`);
+}
+
 function onStatus(text) {
   els.statusLine.textContent = text;
   const m = /(\d+)%/.exec(text);
@@ -248,9 +324,11 @@ async function start(file) {
   els.fileSub.textContent = `${(file.size / 1e6).toFixed(1)} MB · ${file.type || 'unknown type'}`;
   const speakersChoice = els.speakersSelect.value;
   const diarize = speakersChoice !== 'off';
-  els.steps.querySelector('[data-step="speakers"]').classList.toggle('hidden', !diarize);
-  els.steps.style.gridTemplateColumns = `repeat(${diarize ? 5 : 4}, 1fr)`;
-  run = { stage: 'decode', stageStart: performance.now(), stagePct: 0, overall: 0, t0: performance.now() };
+  els.speakersStepLabel.textContent = diarize ? 'Find speakers' : 'Detect speech';
+  els.steps.querySelector('[data-step="review"]').classList.add('hidden');
+  els.qualityChip.className = 'quality hidden';
+  layoutSteps();
+  run = { stage: 'decode', stageStart: performance.now(), stagePct: 0, overall: 0, t0: performance.now(), diarize };
   show(els.progressPanel);
   setStage('decode');
   drawWave(null);
@@ -269,14 +347,17 @@ async function start(file) {
 
   const q = new URLSearchParams(location.search);
   const samples = decoded.samples;
-  state = { duration: decoded.duration, language: els.langSelect.value };
+  const mode = modeValue();
+  state = { duration: decoded.duration, language: els.langSelect.value, mode };
   getWorker().postMessage({
     type: 'run',
     audio: samples,
-    model: els.modelSelect.value,
+    mode,
+    model: els.modelSelect.value, // '' = automatic for the mode
     language: els.langSelect.value,
     diarize,
     numSpeakers: diarize && speakersChoice !== 'auto' ? Number(speakersChoice) : Number(q.get('k')) || 0,
+    vocabulary: vocabulary(),
     debug: q.has('debug'),
   }, [samples.buffer]);
 }
@@ -308,7 +389,7 @@ function drawWave(pk) {
 }
 
 // ---------- results ----------
-function onComplete({ lines, language, ms, device }) {
+function onComplete({ lines, language, ms, device, stats }) {
   setStage('done');
   const speakers = new Map();
   let n = 0;
@@ -317,7 +398,7 @@ function onComplete({ lines, language, ms, device }) {
     if (l.speaker === UNKNOWN) speakers.set(UNKNOWN, { name: 'Unknown', color: UNKNOWN_COLOR });
     else { speakers.set(l.speaker, { name: `Speaker ${n + 1}`, color: COLORS[n % COLORS.length] }); n++; }
   }
-  state = { ...state, lines, speakers, language: language || state.language, ms, device, nextId: 1, activeIdx: -1, query: '' };
+  state = { ...state, lines, speakers, language: language || state.language, ms, device, stats, nextId: 1, activeIdx: -1, query: '' };
 
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(currentFile);
@@ -353,15 +434,25 @@ const realSpeakers = () => [...state.speakers.keys()].filter((id) => id !== UNKN
 
 function renderMeta() {
   const words = state.lines.reduce((t, l) => t + l.text.split(/\s+/).filter(Boolean).length, 0);
-  const lang = state.language ? langName(state.language) : 'Auto';
+  const langs = state.stats?.languages?.length > 1 ? state.stats.languages.map(langName).join(' + ') : state.language ? langName(state.language) : 'Auto';
   const chips = [
+    ['Mode', state.mode === 'fast' ? 'Fast' : 'Best Accuracy'],
     ['Length', fmtTime(state.duration)],
     ['Speakers', String(realSpeakers().length)],
-    ['Language', lang],
+    ['Language', langs],
     ['Words', words.toLocaleString()],
     ['Processed in', `${fmtDur(state.ms / 1000)} · ${state.device === 'webgpu' ? 'GPU' : 'CPU'}`],
   ];
-  els.resMeta.innerHTML = chips.map(([k, v]) => `<span>${esc(k)} <b>${esc(v)}</b></span>`).join('');
+  const unsure = state.lines.filter((l) => l.uncertain).length;
+  els.resMeta.innerHTML = chips.map(([k, v]) => `<span>${esc(k)} <b>${esc(v)}</b></span>`).join('')
+    + (state.quality ? `<button type="button" class="meta-btn q-${state.quality.rating}" data-act="quality">Audio <b>${QUALITY_LABEL[state.quality.rating]}</b></button>` : '')
+    + (unsure ? `<button type="button" class="meta-btn unsure" data-act="unsure">${unsure} part${unsure === 1 ? '' : 's'} to double-check</button>` : '');
+  els.resMeta.querySelector('[data-act="quality"]')?.addEventListener('click', (e) => showQualityInfo(e.currentTarget));
+  els.resMeta.querySelector('[data-act="unsure"]')?.addEventListener('click', (e) => {
+    const first = els.transcript.querySelector('.seg.uncertain');
+    openInfo(e.currentTarget, 'Worth double-checking', 'The speech model reported low confidence for the passages underlined with dots (its average token probability was low, even after a second attempt). They may contain mistakes. Click a passage to hear it.');
+    first?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
 }
 
 function talkStats() {
@@ -457,15 +548,17 @@ function groups() {
   return out;
 }
 
-function isRTL() {
-  return RTL_LANGS.has(state.language) || /[֐-׿؀-ۿ]/.test(state.lines.slice(0, 30).map((l) => l.text).join(''));
+// Right-to-left if most letters are Arabic/Hebrew script (works per paragraph for mixed recordings).
+function isRtlText(text) {
+  const rtl = (text.match(/[\u0590-\u08FF]/g) || []).length;
+  const ltr = (text.match(/[A-Za-z\u00C0-\u024F\u0400-\u04FF]/g) || []).length;
+  return rtl > ltr;
 }
 
 function renderTranscript() {
   const q = state.query.trim();
   const re = q ? new RegExp(escRe(q), 'gi') : null;
   let matches = 0;
-  const rtl = isRTL();
   const frag = document.createDocumentFragment();
   state.segEls = new Array(state.lines.length);
   for (const g of groups()) {
@@ -474,18 +567,19 @@ function renderTranscript() {
     el.className = 'grp';
     el.dataset.sp = g.speaker;
     el.style.setProperty('--c', s.color);
-    if (rtl) el.dir = 'rtl';
+    const groupText = g.idx.map((i) => state.lines[i].text).join(' ');
+    el.dir = isRtlText(groupText) ? 'rtl' : 'ltr';
     const first = state.lines[g.idx[0]];
     el.innerHTML = `<div class="avatar">${esc(initials(s.name))}</div>
       <div class="grp-body">
-        <div class="grp-head"><button class="who" type="button" title="Change speaker"><span class="who-name">${esc(s.name)}</span>${CHEVRON}</button><span class="grp-time">${fmtTime(first.start)}</span></div>
+        <div class="grp-head"><button class="who" type="button" title="Change speaker"><span class="who-name">${esc(s.name)}</span>${CHEVRON}</button><button class="grp-time" type="button" title="Play from ${fmtTime(first.start)}">${fmtTime(first.start)}</button></div>
       </div>`;
     const body = el.querySelector('.grp-body');
     for (const i of g.idx) {
       const p = document.createElement('p');
-      p.className = 'seg';
+      p.className = state.lines[i].uncertain ? 'seg uncertain' : 'seg';
       p.dataset.i = i;
-      p.title = fmtTime(state.lines[i].start);
+      p.title = state.lines[i].uncertain ? `${fmtTime(state.lines[i].start)} · low model confidence, worth double-checking` : fmtTime(state.lines[i].start);
       if (re) {
         const html = esc(state.lines[i].text).replace(new RegExp(escRe(esc(q)), 'gi'), (m) => { matches++; return `<mark>${m}</mark>`; });
         p.innerHTML = html;
@@ -496,6 +590,7 @@ function renderTranscript() {
       body.appendChild(p);
     }
     el.querySelector('.who').addEventListener('click', (e) => openReassignMenu(e.currentTarget, g));
+    el.querySelector('.grp-time').addEventListener('click', () => seek(first.start, true));
     frag.appendChild(el);
   }
   els.transcript.innerHTML = '';

@@ -34,3 +34,9 @@ public/ns_*
 .env
 .env.*
 !.env.example
+
+# accuracy test audio (recordings can be private; only structure + scripts are committed)
+accuracy/testset/**/*
+!accuracy/testset/README.md
+dist-eval
+dist-eval-*

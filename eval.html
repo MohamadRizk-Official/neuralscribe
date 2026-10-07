@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Accuracy lab — NeuralScribe (dev only)</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <style>
+      .eval { max-width: 1280px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; }
+      .eval textarea, .eval input[type=text] { width: 100%; font: 13px var(--mono); color: var(--text); background: rgba(6,8,18,.7); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+      .eval table { width: 100%; border-collapse: collapse; font: 12.5px var(--mono); }
+      .eval th, .eval td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      .eval th { color: var(--muted); font-weight: 500; }
+      .eval .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      .eval .diff { font: 13px/1.7 var(--font); }
+      .eval .diff .sub { background: rgba(251,191,36,.18); } .eval .diff .del { background: rgba(251,113,133,.2); text-decoration: line-through; } .eval .diff .ins { background: rgba(34,211,238,.18); }
+      .eval details { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin: 6px 0; }
+      .eval .muted { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main class="eval">
+      <div>
+        <h1 class="page-title" style="font-size:32px">Accuracy lab <span class="muted" style="font-size:14px">dev only — not deployed</span></h1>
+        <p class="muted">Runs the real on-device pipeline on a test set and scores it against reference transcripts (WER / CER / important-word recall / speaker count). Numbers on the synthetic set are regression checks, not real-world accuracy.</p>
+      </div>
+      <section class="panel">
+        <div class="row">
+          <label>Test set on dev server: <input type="text" id="setPath" value="/accuracy/testset/synthetic/" style="width:340px" /></label>
+          <button class="btn btn-ghost" id="loadSet" type="button">Load</button>
+          <span class="muted">or pick a folder:</span>
+          <input type="file" id="folder" webkitdirectory multiple />
+        </div>
+        <p class="muted" id="setInfo">No test set loaded.</p>
+        <label>Configurations (JSON array; each object is merged into the worker "run" message)</label>
+        <textarea id="configs" rows="5"></textarea>
+        <div class="row" style="margin-top:10px">
+          <label><input type="checkbox" id="useMetaSpeakers" checked /> pass expected speaker count from meta</label>
+          <label><input type="checkbox" id="useMetaVocab" checked /> pass vocabulary from meta</label>
+          <label>only items matching <input type="text" id="filter" style="width:200px" placeholder="regex, optional" /></label>
+          <button class="btn btn-primary" id="run" type="button">Run</button>
+          <button class="btn btn-ghost" id="dl" type="button" disabled>Download JSON</button>
+          <span class="muted" id="status"></span>
+        </div>
+      </section>
+      <section class="panel"><div id="summary" class="muted">No results yet.</div></section>
+      <section class="panel"><div id="details"></div></section>
+    </main>
+    <script type="module" src="/src/pages/eval.js"></script>
+  </body>
+</html>

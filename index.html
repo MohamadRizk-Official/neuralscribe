@@ -64,19 +64,37 @@
             </div>
           </label>
 
-          <div class="controls">
-            <div class="control">
-              <label for="modelSelect">Accuracy</label>
-              <select id="modelSelect">
-                <option value="tiny">Fastest · tiny</option>
-                <option value="base" selected>Balanced · base</option>
-                <option value="small">Accurate · small</option>
-                <option value="turbo">Best · large-v3 turbo</option>
-              </select>
-            </div>
-            <div class="control">
-              <label for="langSelect">Language</label>
-              <select id="langSelect">
+          <fieldset class="mode-picker">
+            <legend>Transcription mode</legend>
+            <label class="mode-card">
+              <input type="radio" name="mode" value="fast" />
+              <span class="mode-check" aria-hidden="true"></span>
+              <span class="mode-body">
+                <span class="mode-title">Fast</span>
+                <span class="mode-desc">Quick processing for clear audio. Good for short voice notes.</span>
+              </span>
+            </label>
+            <label class="mode-card">
+              <input type="radio" name="mode" value="best" checked />
+              <span class="mode-check" aria-hidden="true"></span>
+              <span class="mode-body">
+                <span class="mode-title">Best Accuracy <span class="mode-badge">Recommended</span></span>
+                <span class="mode-desc">Highest quality available. Best for lectures, meetings, noisy audio, accents and long recordings.</span>
+              </span>
+            </label>
+          </fieldset>
+          <p class="mode-note" id="modeNote"></p>
+          <p class="tip cpu-note hidden" id="cpuNote">Your browser is running this on the <b>CPU</b>, which is several times slower. <a href="#" id="cpuWhy">Why, and how to fix it</a></p>
+
+          <details class="advanced" id="advanced">
+            <summary>
+              <span class="adv-title">Advanced settings</span>
+              <span class="adv-summary mono" id="advSummary"></span>
+            </summary>
+            <div class="adv-grid">
+              <div class="control">
+                <label for="langSelect">Language</label>
+                <select id="langSelect">
                 <option value="">Auto-detect</option>
                 <option value="en">English</option>
                 <option value="ar">Arabic</option>
@@ -94,26 +112,42 @@
                 <option value="ja">Japanese</option>
                 <option value="ko">Korean</option>
               </select>
+              </div>
+              <div class="control">
+                <label for="speakersSelect">Speakers</label>
+                <select id="speakersSelect">
+                  <option value="auto" selected>Auto-detect</option>
+                  <option value="1">1 person</option>
+                  <option value="2">2 people</option>
+                  <option value="3">3 people</option>
+                  <option value="4">4 people</option>
+                  <option value="5">5 people</option>
+                  <option value="6">6 people</option>
+                  <option value="7">7 people</option>
+                  <option value="8">8 people</option>
+                  <option value="9">9 people</option>
+                  <option value="10">10 people</option>
+                  <option value="off">Don't label speakers</option>
+                </select>
+              </div>
+              <div class="control">
+                <label for="modelSelect">Speech model</label>
+                <select id="modelSelect">
+                  <option value="" selected>Automatic (matches mode)</option>
+                  <option value="tiny">Whisper tiny</option>
+                  <option value="base">Whisper base</option>
+                  <option value="small">Whisper small</option>
+                  <option value="turbo">Whisper large-v3 turbo</option>
+                </select>
+              </div>
+              <div class="control control-wide">
+                <label for="vocabInput">Important words</label>
+                <textarea id="vocabInput" rows="2" spellcheck="false" placeholder="Hadi Salame, SparkScribe, biomechanics, Qazzaz"></textarea>
+                <p class="help">Add names, technical terms, course vocabulary, company names, or words that may be difficult to recognize. Separate them with commas. They're given to the speech model as a spelling hint, which helps but isn't guaranteed.</p>
+              </div>
             </div>
-            <div class="control">
-              <label for="speakersSelect">Speakers</label>
-              <select id="speakersSelect">
-                <option value="auto" selected>Auto-detect</option>
-                <option value="2">2 people</option>
-                <option value="3">3 people</option>
-                <option value="4">4 people</option>
-                <option value="5">5 people</option>
-                <option value="6">6 people</option>
-                <option value="7">7 people</option>
-                <option value="8">8 people</option>
-                <option value="9">9 people</option>
-                <option value="10">10 people</option>
-                <option value="off">Don't label speakers</option>
-              </select>
-            </div>
-          </div>
-          <p class="tip cpu-note hidden" id="cpuNote">Your browser is running this on the <b>CPU</b>, which is several times slower. <a href="#" id="cpuWhy">Why, and how to fix it</a></p>
-          <p class="tip">Tip: if you know how many people are talking, pick it under <b>Speakers</b>. That makes speaker labels much more accurate.</p>
+            <p class="help">Speaker labels are automatic and can be wrong. If you know how many people are talking, choosing it here makes them more accurate, and you can rename or fix speakers after transcription.</p>
+          </details>
         </div>
       </section>
 
@@ -136,10 +170,12 @@
         </div>
 
         <ol class="stepper" id="steps">
-          <li data-step="decode"><span class="st-dot"></span><span class="st-label">Read audio</span></li>
+          <li data-step="decode"><span class="st-dot"></span><span class="st-label">Prepare audio</span></li>
+          <li data-step="analyze"><span class="st-dot"></span><span class="st-label">Analyze</span></li>
           <li data-step="load"><span class="st-dot"></span><span class="st-label">Load AI</span></li>
-          <li data-step="speakers"><span class="st-dot"></span><span class="st-label">Find speakers</span></li>
+          <li data-step="speakers"><span class="st-dot"></span><span class="st-label" id="speakersStepLabel">Find speakers</span></li>
           <li data-step="run"><span class="st-dot"></span><span class="st-label">Transcribe</span></li>
+          <li data-step="review" class="hidden"><span class="st-dot"></span><span class="st-label">Re-check</span></li>
           <li data-step="done"><span class="st-dot"></span><span class="st-label">Done</span></li>
         </ol>
 
@@ -154,6 +190,7 @@
           </div>
         </div>
         <div class="bar"><i id="pctBar"></i></div>
+        <button class="quality hidden" id="qualityChip" type="button"></button>
         <div class="downloads" id="downloads"></div>
       </section>
 

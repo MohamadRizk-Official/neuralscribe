@@ -1,0 +1,233 @@
+{
+  "note": "Synthetic, text-to-speech test recordings (Windows SAPI voices). Useful for reproducible regression checks of the pipeline (chunking, boundaries, vocabulary, preprocessing). TTS is much easier than real speech: absolute WER here is NOT representative of real-world accuracy. Use accuracy/testset/ with real recordings for that.",
+  "voices": {
+    "A": {
+      "voice": "Microsoft David Desktop",
+      "rate": 0,
+      "pitch": "default"
+    },
+    "B": {
+      "voice": "Microsoft Zira Desktop",
+      "rate": 0,
+      "pitch": "default"
+    },
+    "C": {
+      "voice": "Microsoft David Desktop",
+      "rate": -2,
+      "pitch": "x-low"
+    },
+    "F": {
+      "voice": "Microsoft Zira Desktop",
+      "rate": 5,
+      "pitch": "default"
+    }
+  },
+  "items": [
+    {
+      "id": "two_speakers_clean",
+      "category": "two-speakers",
+      "speakers": 2,
+      "lines": [
+        [
+          "A",
+          "Good morning everyone. Before we start, I want to review the timeline for the product launch."
+        ],
+        [
+          "B",
+          "Sure. The design team finished the new onboarding screens on Tuesday, so we are about a week ahead of schedule."
+        ],
+        [
+          "A",
+          "That is great news. What about the mobile application? Is the payment flow ready for testing?"
+        ],
+        [
+          "B",
+          "Almost. We found two bugs in the checkout page, and the engineers expect to fix them by Thursday afternoon."
+        ],
+        [
+          "A",
+          "Okay. Please send me the test results as soon as they are available, and copy the support team as well."
+        ],
+        [
+          "B",
+          "Will do. I will also prepare a short summary for the marketing department before the end of the week."
+        ]
+      ]
+    },
+    {
+      "id": "vocabulary_names",
+      "category": "technical-vocabulary",
+      "speakers": 2,
+      "vocabulary": [
+        "Hadi Salame",
+        "SparkScribe",
+        "biomechanics",
+        "Qazzaz",
+        "Kubernetes",
+        "electromyography"
+      ],
+      "lines": [
+        [
+          "A",
+          "Professor Hadi Salame will teach the biomechanics course this semester."
+        ],
+        [
+          "B",
+          "Great. Doctor Qazzaz asked whether we can record the lectures with SparkScribe."
+        ],
+        [
+          "A",
+          "Yes. The lab also needs help moving the electromyography data pipeline to Kubernetes."
+        ],
+        [
+          "B",
+          "I will tell Hadi Salame and Doctor Qazzaz that SparkScribe is ready for the first lecture."
+        ]
+      ]
+    },
+    {
+      "id": "fast_speaker",
+      "category": "fast-speaker",
+      "speakers": 1,
+      "lines": [
+        [
+          "F",
+          "Okay so quickly before I forget, the meeting moved to three thirty, the room changed to the second floor, and please bring the signed contracts, the updated budget spreadsheet, and the laptop charger because the last one broke during the presentation yesterday."
+        ]
+      ]
+    },
+    {
+      "id": "three_speakers",
+      "category": "three-speakers",
+      "speakers": 3,
+      "lines": [
+        [
+          "A",
+          "Let's go around the table and share one update each."
+        ],
+        [
+          "B",
+          "I finished the customer interviews. Most people want faster exports and better search."
+        ],
+        [
+          "C",
+          "On the infrastructure side, we reduced the server costs by about fifteen percent this month."
+        ],
+        [
+          "A",
+          "Nice work. Anything blocking either of you?"
+        ],
+        [
+          "B",
+          "Only the legal review of the new privacy policy, which should be done next week."
+        ],
+        [
+          "C",
+          "Nothing blocking on my side, but I will need two more days for the database migration."
+        ]
+      ]
+    },
+    {
+      "id": "lecture_long",
+      "category": "classroom-lecture",
+      "speakers": 1,
+      "boundaryTest": true,
+      "lines": [
+        [
+          "A",
+          "Today we are going to talk about how muscles produce force and how that force moves the skeleton and the first idea to understand is that a muscle can only pull it can never push so every movement you make is the result of muscles pulling on bones through tendons and the bones acting as levers around the joints"
+        ],
+        [
+          "A",
+          "a lever has three parts the fulcrum which is the joint the effort which is the force produced by the muscle and the load which is the weight of the body part plus anything you are holding and depending on where these three parts are located we describe the lever as first class second class or third class"
+        ],
+        [
+          "A",
+          "most levers in the human body are third class levers which means the effort is applied between the fulcrum and the load and this arrangement gives up mechanical advantage in exchange for speed and range of motion which is why you can throw a ball very fast even though your biceps has to produce a force many times larger than the weight of the ball"
+        ],
+        [
+          "A",
+          "now think about the elbow during a bicep curl the elbow joint is the fulcrum the biceps tendon attaches just below the elbow and the weight sits in the hand far away from the joint so the muscle works at a large disadvantage and a small change in the angle of the elbow changes the torque that the muscle must produce"
+        ],
+        [
+          "A",
+          "torque is simply force multiplied by the perpendicular distance from the axis of rotation and that distance is called the moment arm so when the moment arm of the load gets longer the torque gets bigger and the muscle has to work harder to keep the arm in the same position"
+        ],
+        [
+          "A",
+          "for next week please read chapter four about muscle architecture and pay special attention to the difference between parallel and pennate fibers because we will use those ideas when we analyze running and jumping in the lab"
+        ]
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "suffix": "noisy",
+      "category": "noisy",
+      "from": [
+        "two_speakers_clean",
+        "lecture_long"
+      ],
+      "noiseSnrDb": 10
+    },
+    {
+      "suffix": "quiet",
+      "category": "quiet-speaker",
+      "from": [
+        "two_speakers_clean"
+      ],
+      "gainDb": -32
+    },
+    {
+      "suffix": "phone",
+      "category": "phone-recording",
+      "from": [
+        "two_speakers_clean"
+      ],
+      "phone": true
+    },
+    {
+      "suffix": "echo",
+      "category": "echo",
+      "from": [
+        "two_speakers_clean"
+      ],
+      "echo": true
+    },
+    {
+      "suffix": "car",
+      "category": "car-recording",
+      "from": [
+        "two_speakers_clean"
+      ],
+      "rumble": true,
+      "noiseSnrDb": 18
+    },
+    {
+      "suffix": "clipped",
+      "category": "clipping",
+      "from": [
+        "two_speakers_clean"
+      ],
+      "gainDb": 14
+    },
+    {
+      "suffix": "very_noisy",
+      "category": "noisy",
+      "from": [
+        "two_speakers_clean",
+        "vocabulary_names"
+      ],
+      "noiseSnrDb": -3
+    },
+    {
+      "suffix": "very_quiet_noisy",
+      "category": "quiet-speaker",
+      "from": [
+        "lecture_long"
+      ],
+      "noiseSnrDb": 3,
+      "gainDb": -30
+    }
+  ]
+}
