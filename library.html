@@ -26,22 +26,66 @@
       <div class="topbar-right"><div id="accountSlot"></div></div>
     </header>
 
-    <main class="app">
+    <main class="app lib-app">
       <section class="lib-head">
         <div>
-          <div class="eyebrow mono"><span class="pulse"></span>your saved transcripts</div>
+          <div class="eyebrow mono"><span class="pulse"></span>your personal archive</div>
           <h1 class="page-title">My Library</h1>
-          <p class="page-sub" id="libCount">Loading…</p>
+          <p class="lib-stats mono" id="libStats">&nbsp;</p>
         </div>
         <a class="btn btn-primary" href="/">New transcription</a>
       </section>
 
+      <form class="lib-search" role="search" id="searchForm" autocomplete="off">
+        <svg class="lib-search-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="q" maxlength="200" placeholder="Search titles, transcripts and speakers" enterkeyhint="search" aria-label="Search your library" />
+        <button type="button" class="lib-search-clear" id="qClear" aria-label="Clear search" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </form>
+
+      <nav class="tabs lib-views" id="viewTabs" role="tablist" aria-label="Library views">
+        <button class="tab" type="button" role="tab" data-view="recent">Recent</button>
+        <button class="tab" type="button" role="tab" data-view="all">All</button>
+        <button class="tab" type="button" role="tab" data-view="favorites">Favorites</button>
+        <button class="tab" type="button" role="tab" data-view="folders">Folders</button>
+      </nav>
+
+      <div class="lib-toolbar" id="toolbar">
+        <div class="type-filter" id="typeChips" role="group" aria-label="Recording type"></div>
+        <div class="lib-controls">
+          <select id="dateSel" class="lib-select" aria-label="Date">
+            <option value="">Any time</option>
+            <option value="7">Past 7 days</option>
+            <option value="30">Past 30 days</option>
+            <option value="365">Past year</option>
+          </select>
+          <select id="sortSel" class="lib-select" aria-label="Sort">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="longest">Longest</option>
+            <option value="shortest">Shortest</option>
+            <option value="az">A–Z</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" id="selectBtn" type="button" aria-pressed="false">Select</button>
+        </div>
+      </div>
+
+      <div class="folder-head" id="folderHead" hidden></div>
+
       <section class="lib-list" id="libList" aria-live="polite">
         <div class="lib-skel"></div><div class="lib-skel"></div><div class="lib-skel"></div>
       </section>
+      <div class="lib-more" id="libMore"></div>
     </main>
 
-    <footer class="foot mono">Saved transcripts are private to your account · audio is never uploaded · Summary and Ask use transcript text only</footer>
+    <div class="bulk-bar" id="bulkBar" hidden>
+      <span class="bulk-count" id="bulkCount">0 selected</span>
+      <button class="btn btn-ghost btn-sm" type="button" data-bulk="favorite">Favorite</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-bulk="folder">Folder</button>
+      <button class="btn btn-danger btn-sm" type="button" data-bulk="delete">Delete</button>
+      <button class="icon-btn" type="button" data-bulk="cancel" aria-label="Stop selecting"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+
+    <footer class="foot mono">Saved transcripts are private to your account · audio is never uploaded · search runs on your own transcripts, never AI</footer>
     <script type="module" src="/src/pages/library.js"></script>
   </body>
 </html>
