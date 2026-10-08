@@ -39,7 +39,7 @@ function initials(name) {
   // RLS returns nothing for other people's transcripts, so "not yours" looks exactly like "doesn't exist".
   if (!row) return notFound("It may have been deleted, or it belongs to a different account.");
 
-  document.title = `${row.title} — NeuralScribe`;
+  document.title = `${row.title} — SparkScribe`;
   $('tTitle').textContent = row.title;
   $('tTitle').title = row.title;
 

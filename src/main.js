@@ -49,7 +49,19 @@ let state = null; // set when a file starts; filled with results on completion
 let run = null; // progress bookkeeping for the current file
 
 // ---------- settings memory (per browser, best-effort) ----------
-const PREF_KEY = 'neuralscribe.prefs';
+// The app was renamed from NeuralScribe: settings saved under the old keys are moved over once, so nobody
+// loses their mode, speakers, important words or volume.
+function migrateKey(store, oldKey, newKey) {
+  try {
+    const old = store.getItem(oldKey);
+    if (old != null && store.getItem(newKey) == null) store.setItem(newKey, old);
+    if (old != null) store.removeItem(oldKey);
+  } catch {}
+}
+migrateKey(localStorage, 'neuralscribe.prefs', 'sparkscribe.prefs');
+migrateKey(sessionStorage, 'neuralscribe.volume', 'sparkscribe.volume');
+
+const PREF_KEY = 'sparkscribe.prefs';
 const modeValue = () => els.modeInputs.find((i) => i.checked)?.value || 'best';
 const vocabulary = () => els.vocabInput.value.split(/[,\n;]+/).map((w) => w.trim()).filter(Boolean).slice(0, 60);
 try {
@@ -767,7 +779,7 @@ els.speedBtn.addEventListener('click', () => {
 // ---------- playback volume ----------
 // Listening volume only: it sets the <audio> element's volume. The decoded samples used for
 // transcription were taken from the file before playback and are never affected.
-const VOL_KEY = 'neuralscribe.volume';
+const VOL_KEY = 'sparkscribe.volume';
 const VOL_ICONS = {
   muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="m16.5 9.5 5 5m0-5-5 5"/></svg>',
   low: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9.5a3.5 3.5 0 0 1 0 5"/></svg>',
