@@ -100,6 +100,7 @@ See [accuracy/README.md](accuracy/README.md) for measuring accuracy on real reco
   repeated phrases, and stutters, by fixed rules (`src/lib/clean.js`): it can only delete, never add or reword, so
   it can't change meaning. The original is never modified and is what gets saved; exports follow the view on screen.
 - **Tabs:** Transcript · Summary · Notes · Ask · Insights (below).
+- **My Library:** search across every saved transcript with timestamps, folders, favorites, filters (below).
 
 ## Summary, Notes, Ask and Insights
 
@@ -151,6 +152,36 @@ per summary or insight set and about $0.001–0.002 per question (thinking token
 **Privacy.** Only transcript text (plus length and speaker labels) is sent to Anthropic, and only when one of these
 features runs. Audio is never sent. API keys stay on the server.
 
+## My Library
+
+The signed-in user's searchable archive (`/library`, `src/pages/library.js`, data layer `src/lib/library.js`).
+Nothing here uses AI; it's all Postgres.
+
+- **Views:** Recent (recently opened), All, Favorites, Folders. **Filters:** recording type (chips appear once
+  there is more than one type), date (7 days / 30 days / year). **Sort:** newest, oldest, longest, shortest, A–Z.
+  View, filters, sort, folder and search are kept in the URL, so Back and reload work.
+- **Cards:** title, type badge, date, length, speaker count, and the saved AI summary when one exists (otherwise
+  the first transcript line). Star = favorite; ⋯ = open, rename, favorite, folders, remove from folder, delete.
+- **Folders:** create, rename, delete; a recording can be in several folders. Deleting a folder never deletes
+  recordings. **Select** mode adds several recordings to a folder, favorites them, or deletes them (with a
+  confirmation that lists everything removed).
+- **Paging:** 24 recordings per page from `library_list()`, loaded as you scroll (plus a "Show more" button).
+- **Search:** `search_library()` — Postgres full-text search (English stemming: "pricing" finds "price"; quotes
+  for exact phrases; `or`, `-word`). Matches titles, transcript text and real speaker names (generic
+  "Speaker 1" labels are not indexed), plus generated Notes, which are labelled **Notes** and rank below the
+  transcript. Ranking: title match first, then transcript relevance (`ts_rank_cd`), then Notes. Each result
+  shows up to 3 matching lines with their timestamps; clicking one opens `/transcript?id=…&t=…&line=…`, which
+  jumps to and highlights that line (or starts Play along there). Older saves without line timestamps link to
+  the start of the matching paragraph, marked ¶. A recording that has all the words but never on one line shows
+  lines with any of them, marked "Words found separately".
+- **Performance:** search runs in the database against a stored `tsvector` per recording with a per-user GIN
+  index (`btree_gin` on `(user_id, search_tsv)`); line snippets are computed only for the page of results.
+  Tested with 1,000 one-hour recordings in one account: search 0.25–0.7 s, a list page ~50 ms. No transcript is
+  sent to the browser for searching.
+- **Recording page:** rename (pencil next to the title), favorite, folders; everything from Phase 3 unchanged.
+- **Later (global Ask across recordings):** `search_library()` already returns ranked recordings with exact line
+  ids and timestamps, so a future multi-recording Ask can use it as its retrieval step and send only those lines.
+
 ## Accounts & saved transcripts (Supabase)
 
 Optional. Without the two variables below the app works exactly as before, with account features hidden.
@@ -197,6 +228,11 @@ a trigger that creates a profile for every new auth user, indexes, column privil
   not writable by users); `transcription_insights` and `transcription_questions`, readable/writable only when
   `user_id = auth.uid()` **and** the parent transcription belongs to that user; `user_id` is never writable;
   deleting a transcription deletes its results.
+- Phase 4 (`20261009000000_phase4_library.sql` + two follow-ups): `transcriptions.is_favorite`,
+  `last_opened_at` (both user-writable) and `search_tsv` (generated, not writable); `folders` and
+  `folder_items` (a membership can only link the user's own folder to the user's own recording);
+  `transcription_insights.search_tsv` for Notes (trigger-managed); `search_library`, `library_list`,
+  `library_stats` are SECURITY INVOKER (RLS applies) and not executable by `anon`.
 
 ### Supabase dashboard settings (one-time)
 

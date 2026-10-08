@@ -257,7 +257,8 @@ function resultHtml(r) {
   const why = [];
   if (r.title_match) why.push('Title');
   if (r.match_count) why.push(`${r.match_count} match${r.match_count === 1 ? '' : 'es'} in transcript`);
-  if (!r.match_count && noteHits.length) why.push('Notes only');
+  else if (r.partial) why.push('Words found separately in transcript');
+  if (!r.match_count && !r.partial && noteHits.length) why.push('Notes only');
   const hit = (h) => `<li class="sr-hit${h.source === 'notes' ? ' notes' : ''}"><a href="${hitUrl(r, h)}">
       ${h.source === 'notes' ? '<span class="sr-tag" title="AI-generated Notes, not the transcript">Notes</span>' : hitTime(r, h)}
       ${h.source === 'transcript' && h.speaker ? `<span class="sr-sp">${esc(h.speaker)}</span>` : ''}
@@ -432,7 +433,7 @@ async function deleteCurrentFolder() {
   const f = st.folders.find((x) => x.id === id);
   const ok = await confirmDialog({
     title: 'Delete this folder?',
-    bodyHtml: `<p>“${esc(f?.name || 'This folder')}” will be removed. ${f?.count ? `The ${f.count} recording${f.count === 1 ? '' : 's'} in it stay in your library — only the folder goes.` : 'It’s empty.'}</p>`,
+    bodyHtml: `<p>“${esc(f?.name || 'This folder')}” will be removed. ${f?.count ? (f.count === 1 ? 'The recording in it stays in your library' : `The ${f.count} recordings in it stay in your library`) + ' — only the folder goes.' : 'It’s empty.'}</p>`,
     confirmLabel: 'Delete folder', danger: true,
   });
   if (!ok) return;
