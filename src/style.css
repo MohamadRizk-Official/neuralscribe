@@ -1301,7 +1301,7 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 }
 
 /* ---------- Pricing presentation ---------- */
-.bill-hero .page-title { max-width: 18ch; }
+.bill-hero .page-title { max-width: 24ch; }
 .bill-privacy { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0; max-width: 64ch; font-size: 14px; color: var(--muted); }
 .bill-privacy svg { width: 18px; height: 18px; flex: none; margin-top: 1px; fill: none; stroke: var(--lime); stroke-width: 1.8; }
 .bill-privacy b { color: var(--text); font-weight: 600; }

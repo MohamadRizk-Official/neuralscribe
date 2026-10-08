@@ -76,7 +76,7 @@ function render(plans) {
       </div>
       <p class="plan-lead">${lead}</p>
       <ul class="plan-list">${[...copy.items.slice(0, -1).map((t) => [t, '']), ...(copy.extra || []).map((t) => [t, ' class="x"']), ...copy.items.slice(-1).map((t) => [t, ''])].map(([t, c]) => `<li${c}>${esc(t)}</li>`).join('')}</ul>
-      <a class="plan-more" href="#inclTitle">Includes the full AI workspace · <u>See everything</u></a>
+      <a class="plan-more" href="#inclTitle">See everything included ↓</a>
       <div class="plan-cta">${buttonFor(p)}</div>
     </article>`;
   }).join('');
