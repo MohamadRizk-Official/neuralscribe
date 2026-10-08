@@ -1220,3 +1220,93 @@ function demoSwitch(buttons, panel, attr, pressedAttr) {
     });
   }, { passive: true });
 }
+
+// ---------- home polish: spark → upload continuity, resonance around the cursor, transcript demo ----------
+const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const finePointer = matchMedia('(hover: hover) and (pointer: fine)');
+const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document.hidden;
+
+// When the header bolt flashes (every 10 s), a signal runs one lap around the upload area's edge.
+{
+  const hi = document.querySelector('.brand .spark-mark .sbolt-hi');
+  const lap = () => {
+    if (calmMotion.matches || !onLanding()) return;
+    els.dropzone.classList.remove('lap');
+    void els.dropzone.offsetWidth;
+    els.dropzone.classList.add('lap');
+  };
+  const onIdle = (e) => { if (e.animationName === 'spark-idle') setTimeout(lap, 120); };
+  hi?.addEventListener('animationstart', onIdle);
+  hi?.addEventListener('animationiteration', onIdle);
+  els.dropzone.addEventListener('animationend', (e) => { if (e.animationName === 'dz-lap') els.dropzone.classList.remove('lap'); });
+}
+
+// Audio resonance: moving the mouse leaves soft, slightly vibrating rings, like sound spreading from a source.
+// Desktop mouse only, never with "reduce motion", only on the landing view, drawn only while rings are alive.
+{
+  const cv = document.getElementById('bgRipple');
+  const ctx = cv?.getContext('2d');
+  const rings = [];
+  const LIFE = 1500, MAX = 8, STEP = 30, GAP = 90;
+  let last = null, lastT = 0, raf = 0, dpr = 1;
+  const size = () => {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(innerWidth * dpr);
+    cv.height = Math.round(innerHeight * dpr);
+  };
+  const draw = (now) => {
+    raf = 0;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const r = rings[i], t = (now - r.t0) / LIFE;
+      if (t >= 1) { rings.splice(i, 1); continue; }
+      const ease = 1 - (1 - t) ** 3;
+      const radius = 10 + 120 * ease;
+      const amp = 2.2 * (1 - t);
+      ctx.beginPath();
+      for (let k = 0; k <= 72; k++) {
+        const a = (k / 72) * Math.PI * 2;
+        const rr = radius + Math.sin(a * 7 + t * 14 + r.phase) * amp; // a faint vibration in the ring
+        const x = r.x + Math.cos(a) * rr, y = r.y + Math.sin(a) * rr;
+        if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      ctx.strokeStyle = `rgba(${r.rgb}, ${(0.11 * (1 - t) ** 1.6).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    if (rings.length) raf = requestAnimationFrame(draw);
+  };
+  if (cv && ctx) {
+    size();
+    window.addEventListener('resize', size, { passive: true });
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse' || !finePointer.matches || calmMotion.matches || !onLanding()) return;
+      const now = performance.now();
+      if (last && Math.hypot(e.clientX - last.x, e.clientY - last.y) < STEP) return;
+      if (now - lastT < GAP) return;
+      last = { x: e.clientX, y: e.clientY }; lastT = now;
+      rings.push({ x: e.clientX, y: e.clientY, t0: now, phase: Math.random() * 6.28, rgb: rings.length % 2 ? '167,139,250' : '34,211,238' });
+      if (rings.length > MAX) rings.shift();
+      if (!raf) raf = requestAnimationFrame(draw);
+    }, { passive: true });
+  }
+}
+
+// The transcript example plays along slowly while it is on screen (like the real Play along view).
+{
+  const lines = [...document.querySelectorAll('.hear-lines > div')];
+  let timer = 0, i = lines.findIndex((l) => l.classList.contains('hl'));
+  const step = () => {
+    if (calmMotion.matches || !onLanding()) return;
+    lines.forEach((l) => l.classList.remove('hl'));
+    i = (i + 1) % lines.length;
+    lines[i].classList.add('hl');
+  };
+  if (lines.length && 'IntersectionObserver' in window) {
+    new IntersectionObserver(([en]) => {
+      clearInterval(timer);
+      if (en.isIntersecting) timer = setInterval(step, 2600);
+    }, { threshold: 0.4 }).observe(lines[0].parentElement);
+  }
+}

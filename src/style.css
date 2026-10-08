@@ -1225,10 +1225,10 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 @keyframes spark-idle { 0% { opacity: 0; } 2% { opacity: .92; } 4.5% { opacity: .92; } 7.5%, 100% { opacity: 0; } }
 @keyframes spark-idle-glow { 0% { filter: none; } 2%, 4.5% { filter: drop-shadow(0 0 5px rgba(167,139,250,.75)); } 8%, 100% { filter: none; } }
 /* interaction (hover, drag-over, file picked, transcript ready): bolt flash, then a pulse outward, once */
-.brand:hover .spark-mark, .dropzone:hover .spark-mark, .dropzone.over .spark-mark, .spark-mark.pulse { animation: spark-glow 1.2s ease-out 1; }
-.brand:hover .spark-mark .sbolt-hi, .dropzone:hover .spark-mark .sbolt-hi, .dropzone.over .spark-mark .sbolt-hi, .spark-mark.pulse .sbolt-hi { animation: spark-flash 1.2s ease-out 1; }
-.brand:hover .spark-mark .sb-i, .dropzone:hover .spark-mark .sb-i, .dropzone.over .spark-mark .sb-i, .spark-mark.pulse .sb-i { animation: spark-inner 1.2s cubic-bezier(.2,.8,.2,1) 1; }
-.brand:hover .spark-mark .sb-o, .dropzone:hover .spark-mark .sb-o, .dropzone.over .spark-mark .sb-o, .spark-mark.pulse .sb-o { animation: spark-outer 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+.brand:hover .spark-mark, .dropzone:hover .spark-mark, .dropzone.over .spark-mark, .spark-mark.is-sparking { animation: spark-glow 1.2s ease-out 1; }
+.brand:hover .spark-mark .sbolt-hi, .dropzone:hover .spark-mark .sbolt-hi, .dropzone.over .spark-mark .sbolt-hi, .spark-mark.is-sparking .sbolt-hi { animation: spark-flash 1.2s ease-out 1; }
+.brand:hover .spark-mark .sb-i, .dropzone:hover .spark-mark .sb-i, .dropzone.over .spark-mark .sb-i, .spark-mark.is-sparking .sb-i { animation: spark-inner 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+.brand:hover .spark-mark .sb-o, .dropzone:hover .spark-mark .sb-o, .dropzone.over .spark-mark .sb-o, .spark-mark.is-sparking .sb-o { animation: spark-outer 1.2s cubic-bezier(.2,.8,.2,1) 1; }
 @keyframes spark-flash { 0% { opacity: 0; } 10% { opacity: .95; } 27% { opacity: .95; } 46%, 100% { opacity: 0; } }
 @keyframes spark-inner { 0%, 14% { transform: scaleY(1); } 32% { transform: scaleY(1.38); } 62%, 100% { transform: scaleY(1); } }
 @keyframes spark-outer { 0%, 26% { transform: scaleY(1); } 46% { transform: scaleY(1.5); } 78%, 100% { transform: scaleY(1); } }
@@ -1328,4 +1328,77 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 }
 @media (hover: none) {
   .hear-card:hover { transform: none; box-shadow: none; }
+}
+
+/* ===== Homepage polish ===== */
+
+/* Logo fix: the site-wide `svg { stroke: currentColor; stroke-width: 1.8 }` icon rule was outlining the mark's
+   bars and bolt in near-white, which washed out the gradient and hid the (white) flash. The mark is filled
+   artwork, never stroked. */
+.spark-mark, .spark-mark * { stroke: none; }
+
+/* header mark: bars breathe very slightly, the bolt flashes every 10 s */
+.brand .spark-mark .sb { animation: spark-breathe 3.6s ease-in-out var(--d, 0s) infinite; }
+.brand .spark-mark .sb:nth-child(3) { --d: .3s; }
+.brand .spark-mark .sb:nth-child(6) { --d: .6s; }
+.brand .spark-mark .sb:nth-child(7) { --d: .9s; }
+@keyframes spark-breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.86); } }
+@keyframes spark-idle { 0% { opacity: 0; } 2% { opacity: .95; } 6% { opacity: .95; } 10%, 100% { opacity: 0; } }
+@keyframes spark-idle-glow { 0% { filter: none; } 2%, 6% { filter: drop-shadow(0 0 6px rgba(167,139,250,.8)); } 11%, 100% { filter: none; } }
+/* interaction pulse wins over breathing */
+.brand:hover .spark-mark .sb-i, .brand .spark-mark.is-sparking .sb-i, .dropzone:hover .spark-mark .sb-i, .dropzone.over .spark-mark .sb-i, .spark-mark.is-sparking .sb-i { animation: spark-inner 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+.brand:hover .spark-mark .sb-o, .brand .spark-mark.is-sparking .sb-o, .dropzone:hover .spark-mark .sb-o, .dropzone.over .spark-mark .sb-o, .spark-mark.is-sparking .sb-o { animation: spark-outer 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+
+/* hero: the gradient in "what." drifts very slowly */
+.hero h1 .grad { background-size: 220% 100%; animation: grad-drift 16s ease-in-out infinite alternate; }
+@keyframes grad-drift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+.pills li { transition: border-color .2s ease, transform .2s ease, background-color .2s ease; }
+.pills li:hover { border-color: rgba(140,160,255,.3); background-color: rgba(18,22,44,.7); transform: translateY(-1px); }
+
+/* upload: a signal that travels around the edge. At rest it runs one lap when the header bolt flashes (every
+   10 s); on hover it keeps circling slowly; on drag-over two signals race around and the edge lights up. */
+.dz-trace { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.dz-trace rect { x: 1px; y: 1px; width: calc(100% - 2px); height: calc(100% - 2px); rx: 14px; ry: 14px; fill: none; stroke: url(#traceGrad); stroke-width: 1.6; stroke-linecap: round; }
+.dz-trace-run { stroke-dasharray: 10 90; stroke-dashoffset: 100; opacity: 0; }
+.dz-trace-run.r2 { display: none; }
+.dropzone.lap .dz-trace-run { animation: dz-lap 3.4s cubic-bezier(.45,0,.25,1) 1; }
+@keyframes dz-lap { 0% { stroke-dashoffset: 100; opacity: 0; } 8% { opacity: .9; } 86% { opacity: .9; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+.dropzone:hover .dz-trace-run { animation: dz-loop 4.8s linear infinite; opacity: .7; }
+.dropzone.over .dz-trace-run { animation: dz-loop 1.5s linear infinite; opacity: 1; stroke-width: 2; }
+.dropzone.over .dz-trace-run.r2 { display: inline; animation-delay: -.75s; }
+@keyframes dz-loop { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+.dropzone.lap .dz-icon .spark-mark .sbolt-hi { animation: spark-flash 1.2s ease-out 1; }
+.dropzone.over .dz-icon { box-shadow: 0 0 46px rgba(34,211,238,.32), inset 0 0 22px rgba(34,211,238,.14); }
+.dropzone.over .dz-orbit span { animation-duration: 1.6s; }
+
+/* audio resonance around the cursor (desktop only; main.js draws it) */
+.bg-ripple { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* Hear it. Understand it. Use it.: name the real tabs these live in */
+.hear-head { display: grid; gap: 8px; }
+.hear-sub { margin: 0; color: var(--muted); font-size: 14px; }
+.hear-sub b { color: var(--text); font-weight: 500; }
+.hear-tab { margin-left: auto; align-self: flex-start; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-radius: 999px; border: 1px solid rgba(140,160,255,.16); white-space: nowrap; }
+.hear-lines > div { transition: background-color .5s ease; border-radius: 8px; margin: 0 -6px; padding: 4px 6px; }
+.hear-lines .hl { background: rgba(167,139,250,.1); }
+.hear-demo .flash { padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(140,160,255,.16); margin-bottom: 6px; }
+.hear-demo .flash.back { border-color: rgba(34,211,238,.35); background: rgba(34,211,238,.06); }
+.hear-demo .flash-side { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 2px; }
+
+/* Create tab: more tools, compact */
+.tool-more { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(140,160,255,.1); display: grid; gap: 10px; }
+.tool-more .ins-label { margin: 0; }
+.tool-more-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tool-more-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); min-width: 52px; }
+.tool-chip { font: inherit; font-size: 13.5px; min-height: 36px; padding: 6px 13px; border-radius: 999px; cursor: pointer; color: var(--text); background: rgba(140,160,255,.05); border: 1px solid rgba(140,160,255,.16); display: inline-flex; align-items: center; gap: 8px; transition: border-color .15s, background .15s, transform .15s; }
+.tool-chip:hover { border-color: rgba(34,211,238,.45); background: rgba(34,211,238,.06); transform: translateY(-1px); }
+.tool-chip:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.tool-chip.made { border-color: rgba(163,230,53,.35); }
+.tool-chip-state { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.tool-chip-state.ok { color: var(--lime); }
+.tool-chip-state.warn { color: var(--amber); }
+
+@media (max-width: 640px) {
+  .hear-tab { display: none; }
+  .tool-more-label { min-width: 100%; }
 }
