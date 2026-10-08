@@ -215,6 +215,12 @@ npm run build   # outputs to dist/
 
 Deployed on Vercel: the static site plus the two functions in `api/` (`vercel.json` sets their max duration).
 
+- **Production:** https://sparkscribe-moerizz.vercel.app (Vercel project `sparkscribe`, GitHub repo `MohamadRizk-Official/sparkscribe`).
+  Every push to `main` deploys production; other branches get preview deployments.
+- The app was called NeuralScribe until 2026-10-08. The old addresses (`neuralscribe-moerizz.vercel.app`,
+  `neuralscribe-five.vercel.app`) and the old GitHub URL still point here, so links in earlier emails keep working.
+  No custom domain yet.
+
 ## Notes & limits
 
 - First run downloads the chosen model (Tiny ≈ 40 MB, Base ≈ 75 MB, Small ≈ 250 MB, Large v3 Turbo ≈ 1 GB).
