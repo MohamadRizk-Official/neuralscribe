@@ -1,4 +1,4 @@
-// Result-page intelligence: the TRANSCRIPT / SUMMARY / ASK / INSIGHTS tabs.
+// Result-page intelligence: the TRANSCRIPT / SUMMARY / NOTES / ASK / INSIGHTS tabs.
 // Used by the live result page (src/main.js) and the saved transcript page (src/pages/transcript.js).
 // The transcript stays the source of truth: everything here is generated from it on request, stored with
 // it, and every reference points back to a real line and timestamp.
@@ -25,29 +25,57 @@ const ICON = {
 const INSIGHT_LOADING = {
   general: 'Finding action items, decisions and dates',
   meeting: 'Analyzing decisions and action items',
-  lecture: 'Building study notes',
+  lecture: 'Finding concepts, definitions and exam points',
   interview: 'Finding questions, answers and quotes',
   podcast: 'Finding topics and takeaways',
   voice_message: 'Finding what this message needs from you',
 };
 
+const NOTES_LOADING = {
+  general: 'Organizing notes by topic',
+  meeting: 'Writing meeting notes',
+  lecture: 'Writing class notes',
+  interview: 'Writing interview notes',
+  podcast: 'Writing topic notes',
+  voice_message: 'Writing short notes',
+};
+const NOTES_INTRO = {
+  general: 'Structured notes by topic: the important details and statements, organized for reference.',
+  meeting: 'Meeting notes: discussion topics, decisions, open issues and follow-ups.',
+  lecture: 'Class notes: concepts, definitions, examples and explanations, as taught.',
+  interview: 'Interview notes: questions, responses, themes and observations.',
+  podcast: 'Topic notes: arguments, examples and takeaways.',
+  voice_message: 'A few short notes on what to remember from this message.',
+};
+// small label in front of a note; plain points and details get none
+const NOTE_TYPE_LABEL = {
+  statement: 'Said', concept: 'Concept', definition: 'Definition', example: 'Example', emphasis: 'Emphasised', exam: 'Exam',
+  decision: 'Decision', open_issue: 'Open issue', follow_up: 'Follow-up', question: 'Question', response: 'Response',
+  theme: 'Theme', observation: 'Observation', argument: 'Argument', takeaway: 'Takeaway',
+};
+// notes that always get a timestamp, even when the model did not mark them as key
+const NOTE_ALWAYS_TIMED = new Set(['decision', 'exam', 'follow_up', 'definition']);
+
 const SECTION_ORDER = {
-  general: ['action_items', 'decisions', 'suggestions', 'important_dates'],
-  meeting: ['decisions', 'action_items', 'important_dates', 'open_questions', 'follow_ups', 'suggestions'],
-  lecture: ['notes', 'key_concepts', 'definitions', 'important_topics', 'exam_points'],
+  general: ['action_items', 'decisions', 'suggestions', 'priorities', 'concerns', 'important_dates'],
+  meeting: ['decisions', 'action_items', 'important_dates', 'open_questions', 'follow_ups', 'suggestions', 'priorities', 'concerns'],
+  lecture: ['key_concepts', 'definitions', 'important_topics', 'exam_points'],
   interview: ['questions', 'major_topics', 'notable_quotes', 'key_takeaways'],
   podcast: ['main_topics', 'key_takeaways', 'notable_quotes'],
   voice_message: ['requested_actions', 'important_information', 'dates_times'],
 };
 const SECTION_LABEL = {
   action_items: 'Action items', decisions: 'Decisions', suggestions: 'Discussed, not decided', important_dates: 'Important dates',
-  open_questions: 'Open questions', follow_ups: 'Follow-ups', notes: 'Structured notes', key_concepts: 'Key concepts',
+  priorities: 'Priorities', concerns: 'Concerns raised',
+  open_questions: 'Open questions', follow_ups: 'Follow-ups', key_concepts: 'Key concepts',
   definitions: 'Definitions', important_topics: 'Important topics', exam_points: 'Possible exam points',
   questions: 'Questions & answers', major_topics: 'Major topics', notable_quotes: 'Notable quotes', key_takeaways: 'Key takeaways',
   main_topics: 'Main topics', important_information: 'Important information', requested_actions: 'Requested actions', dates_times: 'Dates & times',
 };
 const SECTION_NOTE = {
+  decisions: 'Only where agreement or a decision was stated, with the words that show it.',
   suggestions: 'Proposed in the conversation, but no decision was stated.',
+  priorities: 'Stated as priorities or goals, not as decisions.',
   exam_points: 'Only where the lecturer signalled importance (exams, "remember this", emphasis).',
 };
 
@@ -64,7 +92,7 @@ const STARTERS = {
  * @param {object} o
  * @param {HTMLElement} o.tabBar           container for the tab buttons
  * @param {HTMLElement[]} o.transcriptEls  existing elements that make up the Transcript tab
- * @param {HTMLElement} o.host             where the Summary / Ask / Insights panels are inserted
+ * @param {HTMLElement} o.host             where the Summary / Notes / Ask / Insights panels are inserted
  * @param {object} o.ctx                   page hooks (see below)
  *   getId() → saved transcription id or null; isSignedIn() → bool; signIn() → void (optional)
  *   getSegments() → [{id,start,end,speaker,text}]; seek(seconds) → void; playbackTime() → seconds|null
@@ -79,12 +107,12 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
   const type = () => normalizeRecordingType(ctx.getRecordingType());
 
   // ---------- tabs ----------
-  const TABS = [['transcript', 'Transcript'], ['summary', 'Summary'], ['ask', 'Ask'], ['insights', 'Insights']];
+  const TABS = [['transcript', 'Transcript'], ['summary', 'Summary'], ['notes', 'Notes'], ['ask', 'Ask'], ['insights', 'Insights']];
   tabBar.className = 'tabs';
   tabBar.setAttribute('role', 'tablist');
   tabBar.innerHTML = TABS.map(([k, label]) => `<button class="tab${k === 'transcript' ? ' on' : ''}" type="button" role="tab" data-tab="${k}" aria-selected="${k === 'transcript'}">${label}</button>`).join('');
   const panels = {};
-  for (const k of ['summary', 'ask', 'insights']) {
+  for (const k of ['summary', 'notes', 'ask', 'insights']) {
     const p = document.createElement('section');
     p.className = 'tab-panel hidden';
     p.dataset.panel = k;
@@ -94,7 +122,9 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
   }
   tabBar.addEventListener('click', (e) => {
     const b = e.target.closest('[data-tab]');
-    if (b) showTab(b.dataset.tab);
+    if (!b) return;
+    showTab(b.dataset.tab);
+    b.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }); // narrow screens scroll the tab row
   });
 
   function showTab(name) {
@@ -220,15 +250,15 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     if (ctx.isSignedIn() && !ctx.getId()) {
       panel.innerHTML = `<div class="panel ins-card">${ctx.saving?.()
         ? loading('Saving this transcript to My Library first')
-        : `<div class="ins-msg">${ICON.lock}<span>Summary, Ask and Insights work on transcripts saved in My Library. This one isn't saved yet — use Retry in the bar above.</span></div>`}</div>`;
+        : `<div class="ins-msg">${ICON.lock}<span>Summary, Notes, Ask and Insights work on transcripts saved in My Library. This one isn't saved yet — use Retry in the bar above.</span></div>`}</div>`;
       return true;
     }
     if (!ctx.getId() || !ctx.isSignedIn()) {
       const can = typeof ctx.signIn === 'function';
       panel.innerHTML = `<div class="panel ins-card ins-gate">
         <div class="ins-gate-icon">${ICON.spark}</div>
-        <h3>Summaries, answers and insights</h3>
-        <p>Get a summary, key points, chapters, action items and answers about this recording. These are saved with the transcript, so ${can ? 'they need' : 'it needs'} your free account.</p>
+        <h3>Summaries, notes, answers and insights</h3>
+        <p>Get a summary, organized notes, chapters, action items and answers about this recording. These are saved with the transcript, so ${can ? 'they need' : 'it needs'} your free account.</p>
         ${can ? '<button class="btn btn-primary" type="button" data-act="signin">Sign in to continue</button>' : ''}
         ${ctx.savedNote?.() || ''}
       </div>`;
@@ -319,11 +349,25 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     return `<div class="type-pick"><span class="ins-label">Recording type</span><div class="type-chips" role="radiogroup" aria-label="Recording type">${RECORDING_TYPES.map((t) =>
       `<button type="button" class="type-chip${(cur || 'general') === t ? ' on' : ''}" role="radio" aria-checked="${(cur || 'general') === t}" data-type="${t}">${RECORDING_TYPE_LABEL[t]}</button>`).join('')}</div></div>`;
   }
+  // The recording type drives Notes and Insights alike; picking one generates the open tab's analysis
+  // for that type right away unless it is already stored.
+  function bindTypePicker(p, kind) {
+    p.querySelectorAll('[data-type]').forEach((b) => b.addEventListener('click', async () => {
+      const nt = b.dataset.type;
+      if (nt === ctx.getRecordingType()) return;
+      try { await ctx.setRecordingType(nt); } catch {}
+      render();
+      if (!st.insights.get(key(kind, nt)) && hasConsent()) generate(kind);
+    }));
+  }
+  const evidenceLine = (item) => (item.evidence ? `<blockquote class="evidence">“${esc(item.evidence)}”</blockquote>` : '');
   function renderItem(sec, item, byId) {
     const c = chips(item.refs, byId);
     switch (sec) {
       case 'action_items': case 'requested_actions':
-        return `<li class="ins-item action"><div class="act-task">${esc(item.task)}</div><dl class="act-meta"><div><dt>Assigned to</dt><dd class="${item.owner ? '' : 'ns'}">${esc(item.owner || 'Not specified')}</dd></div><div><dt>Deadline</dt><dd class="${item.deadline ? '' : 'ns'}">${esc(item.deadline || 'Not specified')}</dd></div></dl>${c}</li>`;
+        return `<li class="ins-item action"><div class="act-task">${esc(item.task)}</div><dl class="act-meta"><div><dt>Assigned to</dt><dd class="${item.owner ? '' : 'ns'}">${esc(item.owner || 'Not specified')}</dd></div><div><dt>Deadline</dt><dd class="${item.deadline ? '' : 'ns'}">${esc(item.deadline || 'Not specified')}</dd></div></dl>${evidenceLine(item)}${c ? `<div class="act-cites">${c}</div>` : ''}</li>`;
+      case 'decisions':
+        return `<li class="ins-item"><span>${esc(item.text)}</span>${evidenceLine(item)}${c}</li>`;
       case 'important_dates': case 'dates_times':
         return `<li class="ins-item date"><span class="date-when">${esc(item.when)}</span><span class="date-what">${esc(item.what)}</span>${c}</li>`;
       case 'notable_quotes':
@@ -334,8 +378,6 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
         return `<li class="ins-item"><b>${esc(item.term)}</b>: ${esc(item.definition)}${c}</li>`;
       case 'questions':
         return `<li class="ins-item qa"><div class="qa-q"><span class="qa-who">${esc(item.asked_by || 'Question')}</span>${esc(item.question)}</div><div class="qa-a"><span class="qa-who">${esc(item.answered_by || 'Answer')}</span>${esc(item.answer)}</div>${c}</li>`;
-      case 'notes':
-        return `<li class="ins-item note"><h4 class="ins-h">${esc(item.heading)}</h4><ul class="ins-points">${(item.points || []).map((pt) => `<li><span>${esc(pt.text)}</span>${chips(pt.refs, byId)}</li>`).join('')}</ul></li>`;
       default:
         return `<li class="ins-item"><span>${esc(item.text)}</span>${c}</li>`;
     }
@@ -359,7 +401,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
         const items = ins.content[sec] || [];
         const label = t === 'meeting' && sec === 'important_dates' ? 'Deadlines & dates' : SECTION_LABEL[sec];
         return `<section class="ins-sec"><div class="ins-label">${esc(label)}${items.length ? ` <span>${items.length}</span>` : ''}</div>${SECTION_NOTE[sec] && items.length ? `<p class="ins-sub">${SECTION_NOTE[sec]}</p>` : ''}${items.length
-          ? `<ul class="ins-list${sec === 'notes' ? ' notes' : ''}">${items.map((it) => renderItem(sec, it, byId)).join('')}</ul>`
+          ? `<ul class="ins-list">${items.map((it) => renderItem(sec, it, byId)).join('')}</ul>`
           : '<p class="ins-none">None mentioned in this recording.</p>'}</section>`;
       }).join('');
     } else if (!busy && !err) {
@@ -369,14 +411,45 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     p.innerHTML = html;
     p.querySelector('[data-act="insights"]')?.addEventListener('click', () => generate('insights'));
     p.querySelector('[data-act="insights-retry"]')?.addEventListener('click', () => generate('insights', { force: true }));
-    p.querySelectorAll('[data-type]').forEach((b) => b.addEventListener('click', async () => {
-      const nt = b.dataset.type;
-      if (nt === ctx.getRecordingType()) return;
-      try { await ctx.setRecordingType(nt); } catch {}
-      render();
-      // choosing a type is an explicit request: analyse it right away unless it's already stored
-      if (!st.insights.get(key('insights', nt)) && hasConsent()) generate('insights');
-    }));
+    bindTypePicker(p, 'insights');
+  }
+
+  // ---------- Notes tab ----------
+  // Reference / study notes, organized by topic (the Summary says what happened; Notes are for looking
+  // things up). Timestamps on each section and on the key notes only, not after every line.
+  function renderNotes() {
+    const p = panels.notes;
+    if (gate(p)) return;
+    const byId = segById();
+    const t = type();
+    const k = key('notes', t);
+    const nt = st.insights.get(k);
+    const busy = st.busy.has(k) || nt?.status === 'generating';
+    const err = st.errors.get(k) || (nt?.status === 'failed' ? { message: nt.error } : null);
+    let html = `<div class="panel ins-card">${typePicker()}</div>`;
+    html += `<div class="panel ins-card notes-card">`;
+    if (busy) html += loading(NOTES_LOADING[t]);
+    else if (err) html += errorBox(err, 'notes-retry');
+    if (nt?.status === 'ready' && nt.content) {
+      html += staleBox(nt, 'notes-retry');
+      html += `<div class="ins-label">Notes <span>· ${esc(RECORDING_TYPE_LABEL[t])}</span></div>`;
+      html += nt.content.sections.length ? nt.content.sections.map((sec) => {
+        const s = byId.get(sec.start_ref);
+        const time = s ? `<button class="cite" type="button" data-seek="${s.start}" data-ref="${s.id}" title="Go to ${fmtClock(s.start)}">${fmtClock(s.start)}</button>` : '';
+        return `<section class="note-sec"><h4 class="note-h"><span>${esc(sec.heading)}</span>${time}</h4><ul class="note-list">${sec.items.map((it) => {
+          const label = NOTE_TYPE_LABEL[it.type];
+          const timed = it.key || NOTE_ALWAYS_TIMED.has(it.type);
+          return `<li class="note-item${it.key ? ' key' : ''}">${label ? `<span class="note-tag">${esc(label)}</span>` : ''}<span>${esc(it.text)}</span>${timed ? chips(it.refs, byId) : ''}</li>`;
+        }).join('')}</ul></section>`;
+      }).join('') : '<p class="ins-none">Nothing to note in this recording.</p>';
+    } else if (!busy && !err) {
+      html += `<div class="ins-intro-row"><p>${esc(NOTES_INTRO[t])} Only what was said in this recording, nothing added.</p><button class="btn btn-primary" type="button" data-act="notes">Make notes</button></div>${privacyLine}`;
+    }
+    html += `</div>`;
+    p.innerHTML = html;
+    p.querySelector('[data-act="notes"]')?.addEventListener('click', () => generate('notes'));
+    p.querySelector('[data-act="notes-retry"]')?.addEventListener('click', () => generate('notes', { force: true }));
+    bindTypePicker(p, 'notes');
   }
 
   // ---------- Ask tab ----------
@@ -448,6 +521,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
   // ---------- shared ----------
   function render() {
     if (st.tab === 'summary') renderSummary();
+    else if (st.tab === 'notes') renderNotes();
     else if (st.tab === 'insights') renderInsights();
     else if (st.tab === 'ask') renderAsk();
   }

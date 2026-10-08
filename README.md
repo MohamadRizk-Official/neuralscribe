@@ -99,9 +99,9 @@ See [accuracy/README.md](accuracy/README.md) for measuring accuracy on real reco
 - **Original / Clean** transcript view. Clean removes hesitations (um, uh, erm…), directly repeated words and short
   repeated phrases, and stutters, by fixed rules (`src/lib/clean.js`): it can only delete, never add or reword, so
   it can't change meaning. The original is never modified and is what gets saved; exports follow the view on screen.
-- **Tabs:** Transcript · Summary · Ask · Insights (below).
+- **Tabs:** Transcript · Summary · Notes · Ask · Insights (below).
 
-## Summary, Ask and Insights
+## Summary, Notes, Ask and Insights
 
 Built on top of a saved transcript; the transcript stays the source of truth. Requires a signed-in user.
 
@@ -109,16 +109,21 @@ Built on top of a saved transcript; the transcript stays the source of truth. Re
 | --- | --- | --- |
 | Summary | short summary (TL;DR for voice messages), key points, chapters (recordings ≥ 8 min) | automatically after a fresh transcription once the user has turned summaries on once (first time: one click); otherwise on click |
 | Summary | detailed summary, structured for the recording type | on click |
-| Insights | by recording type — General: action items, decisions, discussed-not-decided, dates · Meeting: + open questions, follow-ups · Lecture: notes, key concepts, definitions, topics, possible exam points · Interview: Q&A, topics, quotes, takeaways · Podcast: topics, takeaways, quotes · Voice Message: requested actions, important information, dates & times | on click, or automatically when a recording type was chosen before transcribing |
+| Notes | organized reference / study notes by topic, for the recording type (General: topics, details, statements · Lecture: concepts, definitions, examples, emphasis, exam info only when said · Meeting: topics, decisions, open issues, follow-ups · Interview: questions, responses, themes · Podcast: arguments, examples, takeaways · Voice Message: a few short notes); timestamps on sections and key notes | on click |
+| Insights | by recording type — General: action items, decisions, discussed-not-decided, priorities, concerns, dates · Meeting: + open questions, follow-ups · Lecture: key concepts, definitions, topics, possible exam points · Interview: Q&A, topics, quotes, takeaways · Podcast: topics, takeaways, quotes · Voice Message: requested actions, important information, dates & times | on click, or automatically when a recording type was chosen before transcribing |
 | Ask | questions answered only from the recording, with clickable timestamp citations, streamed | per question |
 
 **Recording type** (General, Lecture, Meeting, Interview, Podcast, Voice Message) is optional: pick it in Advanced
-settings before transcribing or on the Insights tab afterwards. It is stored on the transcript.
+settings before transcribing or on the Notes / Insights tabs afterwards. It is stored on the transcript.
 
 **Grounding.** The model sees each transcript line as `[id] m:ss Speaker: text` and cites line ids, never
 timestamps. The server (`server/ai/grounding.js`) keeps only ids that exist (for Ask: only ids it actually sent),
-drops any item without a valid line, drops "quotes" that don't appear word for word in the cited lines, and builds
-chapter times from real lines. Answers the transcript doesn't support come back as "I couldn't find that in this
+drops any item without a valid line, drops "quotes" that don't appear word for word in the cited lines, drops
+decisions and action items whose supporting words (`evidence`) aren't word for word in the cited lines, and builds
+chapter times from real lines. Prompts (`server/ai/prompts.js`) share one rule set for every feature: keep the
+speakers' own hedges and frequency words (sometimes ≠ often, might ≠ will, suggested ≠ agreed), no outside
+knowledge, quotation marks only around exact words, a decision only where agreement is stated, owner/deadline only
+when said ("Not specified" otherwise), and speakers named only by their transcript labels. Answers the transcript doesn't support come back as "I couldn't find that in this
 recording."; an answer without any citation is labelled as unsupported. Speaker labels are never turned into guessed
 names, and relative dates ("next Friday") are kept as said.
 
@@ -162,7 +167,7 @@ Optional. Without the two variables below the app works exactly as before, with 
   Signed-out users can choose "Sign in to save": the transcript waits in that browser's localStorage and is
   saved right after sign-in.
 - **Privacy:** audio never leaves the device. Only transcript text and its metadata are stored, and only for
-  signed-in users. Summary, Ask and Insights send transcript text (never audio) to Anthropic when used.
+  signed-in users. Summary, Notes, Ask and Insights send transcript text (never audio) to Anthropic when used.
 
 ### Environment variables
 
@@ -170,7 +175,7 @@ Optional. Without the two variables below the app works exactly as before, with 
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Vercel (Production) + `.env.local` | `https://<project-ref>.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Vercel (Production) + `.env.local` | the `sb_publishable_…` key |
-| `ANTHROPIC_API_KEY` | Vercel (Production + Preview, Sensitive) + `.env.local` | **server only**; enables Summary / Ask / Insights |
+| `ANTHROPIC_API_KEY` | Vercel (Production + Preview, Sensitive) + `.env.local` | **server only**; enables Summary / Notes / Ask / Insights |
 | `AI_MODEL`, `AI_MODEL_SUMMARY`, `AI_MODEL_INSIGHTS`, `AI_MODEL_ASK` | optional | override `claude-haiku-5-5` |
 | `AI_PROVIDER=mock` | `.env.local` only | local development without a key (ignored in production) |
 

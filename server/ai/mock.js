@@ -1,7 +1,8 @@
 // Local-development stand-in for the AI provider (AI_PROVIDER=mock; refused in production).
 // Deterministic and crude on purpose: it exercises the whole pipeline — storage, caching, staleness,
 // streaming, citations — without a key or any cost. It also deliberately returns one made-up line
-// number and one invented quote, so the grounding checks are exercised on every run.
+// number, one invented quote and one decision with invented evidence, so the grounding checks are
+// exercised on every run.
 // It says nothing about real answer quality.
 
 const parseLines = (text) =>
@@ -27,17 +28,28 @@ function structured(task, lines) {
     const half = Math.ceil(lines.length / 2);
     return { sections: [lines.slice(0, half), lines.slice(half)].filter((p) => p.length).map((p, i) => ({ heading: i ? 'Later' : 'Beginning', points: p.slice(0, 3).map((l) => ({ text: firstSentence(l.text), refs: [l.id] })) })) };
   }
-  const acts = pick(lines, /\b(will|need to|needs to|should|please|can you|send|finish|prepare)\b/i).map((l) => ({ task: firstSentence(l.text), owner: null, deadline: (l.text.match(/\b(by|before|on) ([A-Z][a-z]+day|tomorrow|next \w+)/) || [])[0] || null, refs: [l.id] }));
-  const decs = pick(lines, /\b(agreed|decided|we'll go with|let's go with|final)\b/i).map((l) => ({ text: firstSentence(l.text), refs: [l.id] }));
+  if (task === 'notes') {
+    const half = Math.ceil(lines.length / 2);
+    return {
+      sections: [lines.slice(0, half), lines.slice(half)].filter((p) => p.length).map((p, i) => ({
+        heading: i ? 'Later topic (mock)' : 'First topic (mock)',
+        start_ref: i ? p[0].id : BOGUS, // an invalid section start, which the server must repair
+        items: [...p.slice(0, 3).map((l, k) => ({ type: 'point', text: firstSentence(l.text), key: k === 0, refs: [l.id] })), { type: 'detail', text: 'Ungrounded note (mock)', key: false, refs: [BOGUS] }],
+      })),
+    };
+  }
+  const acts = pick(lines, /\b(will|need to|needs to|should|please|can you|send|finish|prepare)\b/i).map((l) => ({ task: firstSentence(l.text), owner: null, deadline: (l.text.match(/\b(by|before|on) ([A-Z][a-z]+day|tomorrow|next \w+)/) || [])[0] || null, evidence: firstSentence(l.text), refs: [l.id] }));
+  const decs = pick(lines, /\b(agreed|decided|we'll go with|let's go with|final)\b/i).map((l) => ({ text: firstSentence(l.text), evidence: firstSentence(l.text), refs: [l.id] }));
+  if (lines.length) decs.push({ text: 'Invented decision (mock)', evidence: 'we all agreed on something nobody said', refs: [lines[0].id] });
   const dates = pick(lines, /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}(st|nd|rd|th))\b/i)
     .map((l) => ({ what: firstSentence(l.text), when: (l.text.match(/\b(next \w+|\w+day|tomorrow|\w+ \d{1,2}(st|nd|rd|th)?)\b/i) || ['as said'])[0], refs: [l.id] }));
   const pts = lines.slice(0, 3).map((l) => ({ text: firstSentence(l.text), refs: [l.id] }));
   const quotes = [...lines.slice(0, 2).map((l) => ({ quote: firstSentence(l.text), speaker: l.speaker, refs: [l.id] })), { quote: 'A sentence nobody ever said in this recording', speaker: 'Speaker 1', refs: [lines[0]?.id ?? 0] }];
   const type = task.split(':')[1];
-  const common = { action_items: [...acts, { task: 'Invented task (mock)', owner: 'Nobody', deadline: null, refs: [BOGUS] }], decisions: decs, suggestions: [], important_dates: dates };
+  const common = { action_items: [...acts, { task: 'Invented task (mock)', owner: 'Nobody', deadline: null, evidence: 'nothing', refs: [BOGUS] }], decisions: decs, suggestions: [], priorities: [], concerns: [], important_dates: dates };
   switch (type) {
     case 'meeting': return { ...common, open_questions: pick(lines, /\?$/).map((l) => ({ text: l.text, refs: [l.id] })), follow_ups: [] };
-    case 'lecture': return { notes: [{ heading: 'Notes (mock)', points: pts }], key_concepts: [], definitions: pick(lines, /\b(is defined as|means|refers to)\b/i).map((l) => ({ term: l.text.split(' ').slice(0, 2).join(' '), definition: l.text, refs: [l.id] })), important_topics: pts, exam_points: pick(lines, /\b(exam|test|quiz|important|remember)\b/i).map((l) => ({ text: l.text, refs: [l.id] })) };
+    case 'lecture': return { key_concepts: [], definitions: pick(lines, /\b(is defined as|means|refers to)\b/i).map((l) => ({ term: l.text.split(' ').slice(0, 2).join(' '), definition: l.text, refs: [l.id] })), important_topics: pts, exam_points: pick(lines, /\b(exam|test|quiz|important|remember)\b/i).map((l) => ({ text: l.text, refs: [l.id] })) };
     case 'interview': return { questions: pick(lines, /\?$/).map((l) => ({ question: l.text, asked_by: l.speaker, answer: lines.find((x) => x.id === l.id + 1)?.text || '', answered_by: lines.find((x) => x.id === l.id + 1)?.speaker || null, refs: [l.id, l.id + 1] })), major_topics: pts, notable_quotes: quotes, key_takeaways: pts };
     case 'podcast': return { main_topics: pts, key_takeaways: pts, notable_quotes: quotes };
     case 'voice_message': return { important_information: pts, requested_actions: acts, dates_times: dates };

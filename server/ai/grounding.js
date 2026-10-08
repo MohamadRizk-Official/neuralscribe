@@ -1,7 +1,8 @@
 // Checks model output against the transcript before anything is stored or shown.
 //  * every `refs` list keeps only line numbers that exist (and, for Ask, that were actually sent);
 //  * items (key points, actions, decisions, dates, quotes…) without a valid reference are dropped;
-//  * quotes must appear word for word in the cited lines, otherwise they are dropped;
+//  * quotes, and the evidence behind decisions and action items, must appear word for word in the
+//    cited lines, otherwise the item is dropped;
 //  * chapters get their timestamps from real lines, in time order, never from the model.
 import { citedIds, splitCitations, isNotFound } from '../../src/lib/segments.js';
 
@@ -55,6 +56,8 @@ export function groundStructured(content, segments) {
       // model could not ground is dropped rather than shown as if it were in the recording
       if ('refs' in o && !o.refs.length) return undefined;
       if ('quote' in o && !quoteIsVerbatim(o.quote, o.refs, byId)) return undefined;
+      // a decision or action item only counts if the words showing it are really in the transcript
+      if ('evidence' in o && !quoteIsVerbatim(o.evidence, o.refs, byId)) return undefined;
       return o;
     }
     return typeof value === 'string' ? value.trim() : value;

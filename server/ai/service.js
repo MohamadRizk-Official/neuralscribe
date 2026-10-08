@@ -2,7 +2,8 @@
 //
 //   generateOverview()        short summary + key points + chapters, in ONE model call
 //   generateDetailedSummary() structured summary for the recording type
-//   generateInsights()        type-specific extraction (actions, decisions, dates, notes, quotes…)
+//   generateNotes()           organized reference / study notes for the recording type
+//   generateInsights()        type-specific extraction (actions, decisions, dates, quotes…)
 //   askTranscript()           grounded Q&A with timestamp citations, streamed
 //   (cleanTranscript is rule-based and runs in the browser: src/lib/clean.js)
 //
@@ -16,7 +17,7 @@
 //     the stored answer.
 import { getProvider, taskConfig, AIError } from './provider.js';
 import { createMeter } from './usage.js';
-import { ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
+import { ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, NOTES_SCHEMA, notesInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
 import { groundStructured, groundChapters, groundAnswer } from './grounding.js';
 import { selectContext, needsRetrieval, formatExcerpts } from './retrieve.js';
 import { segmentsFromRow, modelLine, estimateTokens, normalizeRecordingType, RECORDING_TYPES } from '../../src/lib/segments.js';
@@ -24,7 +25,7 @@ import { segmentsFromRow, modelLine, estimateTokens, normalizeRecordingType, REC
 const PART_TOKENS = 80_000;
 const GENERATING_TIMEOUT_MS = 120_000;
 const MAX_TRANSCRIPT_TOKENS = 600_000; // ~30+ hours of speech; beyond this we refuse rather than run up cost
-export const KINDS = ['overview', 'detailed_summary', 'insights'];
+export const KINDS = ['overview', 'detailed_summary', 'notes', 'insights'];
 const CHAPTER_MIN_MINUTES = 8;
 
 function transcriptHeader(row, segments) {
@@ -112,7 +113,18 @@ async function generateInsights(row, segments, type, meter) {
   return { ...r, content, dropped };
 }
 
-const GENERATORS = { overview: generateOverview, detailed_summary: generateDetailedSummary, insights: generateInsights };
+async function generateNotes(row, segments, type, meter) {
+  const r = await analyze({ task: 'notes', schema: NOTES_SCHEMA, instructions: notesInstructions(type), row, segments, meter });
+  const { content, dropped } = groundStructured(r.json, segments);
+  const ids = new Set(segments.map((s) => s.id));
+  content.sections = content.sections
+    .filter((s) => s.items.length)
+    // a section's timestamp must be a real line: otherwise use its first supported note
+    .map((s) => ({ ...s, start_ref: ids.has(Number(s.start_ref)) ? Number(s.start_ref) : s.items[0].refs[0] }));
+  return { ...r, content, dropped };
+}
+
+const GENERATORS = { overview: generateOverview, detailed_summary: generateDetailedSummary, notes: generateNotes, insights: generateInsights };
 
 function publicInsight(i) {
   return {
@@ -185,6 +197,9 @@ const INTENTS = [
   [/\b(action|task|to.?do|assign|responsib|follow.?up|need(s)? to do|next step)/i, ['action_items', 'requested_actions', 'follow_ups']],
   [/\b(deadline|due|date|when|schedule|appointment|by (mon|tues|wednes|thurs|fri|satur|sun)day)/i, ['important_dates', 'dates_times', 'action_items']],
   [/\b(question|unresolved|open issue)/i, ['open_questions', 'questions']],
+  [/\b(priorit|goal|focus)/i, ['priorities']],
+  [/\b(concern|worr|risk|problem|issue)/i, ['concerns']],
+  [/\b(suggest|propos|idea|recommend)/i, ['suggestions']],
   [/\b(study|exam|test|concept|definition|important)/i, ['exam_points', 'key_concepts', 'definitions', 'important_topics']],
   [/\b(summar|main|overall|about|key point|takeaway)/i, ['key_points', 'key_takeaways', 'main_topics', 'major_topics']],
 ];

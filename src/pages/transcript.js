@@ -1,4 +1,4 @@
-// /transcript?id=… — one saved transcript, with Summary / Ask / Insights, copy / download / delete.
+// /transcript?id=… — one saved transcript, with Summary / Notes / Ask / Insights, copy / download / delete.
 import { isConfigured } from '../lib/supabase.js';
 import { mountAccountMenu, requireUser, esc } from '../lib/account.js';
 import { getTranscript, deleteTranscript, updateRecordingType, fmtDuration, fmtDate, langName } from '../lib/transcripts.js';
@@ -134,7 +134,7 @@ function initials(name) {
     lastActive = el;
   });
 
-  // Timestamps in Summary / Ask / Insights: play from there if the audio is open, otherwise show the line.
+  // Timestamps in Summary / Notes / Ask / Insights: play from there if the audio is open, otherwise show the line.
   function seekTo(seconds, ref) {
     if (player.getAttribute('src')) {
       player.currentTime = seconds;

@@ -1002,7 +1002,7 @@ const CLOUD = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.5 4.
 const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17l9-10"/></svg>';
 const WARN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4m0 3v.01"/></svg>';
 
-// ---------- Summary / Ask / Insights tabs ----------
+// ---------- Summary / Notes / Ask / Insights tabs ----------
 // Built from the saved transcript (transcript text only; audio never leaves this device).
 const insights = mountInsights({
   tabBar: $('resTabs'),

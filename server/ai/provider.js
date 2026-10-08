@@ -14,6 +14,7 @@ const DEFAULT_MODEL = 'claude-haiku-5-5';
 const TASKS = {
   overview: { env: 'AI_MODEL_SUMMARY', effort: 'medium', maxTokens: 8000 },
   detailed_summary: { env: 'AI_MODEL_SUMMARY', effort: 'medium', maxTokens: 10000 },
+  notes: { env: 'AI_MODEL_SUMMARY', effort: 'medium', maxTokens: 10000 },
   insights: { env: 'AI_MODEL_INSIGHTS', effort: 'medium', maxTokens: 10000 },
   reduce: { env: 'AI_MODEL_SUMMARY', effort: 'medium', maxTokens: 10000 },
   ask: { env: 'AI_MODEL_ASK', effort: 'low', maxTokens: 3000 },
