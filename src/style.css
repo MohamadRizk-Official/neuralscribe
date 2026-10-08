@@ -1347,6 +1347,8 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 @media (max-width: 640px) {
   .incl { padding: 18px; }
   .incl-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .incl-group li span { display: none; }   /* phones: names only, keeps the list short */
+  .incl-group ul:not(.chips) { gap: 6px; }
   .plan-allow .num { font-size: 40px; }
   .plan-price .amt { font-size: 32px; }
 }
