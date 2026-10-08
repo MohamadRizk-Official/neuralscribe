@@ -73,8 +73,6 @@ svg { stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round
 .brand-mark i:nth-child(4){ height: 15px; animation-delay: .45s; }
 .brand-mark i:nth-child(5){ height: 10px; animation-delay: .6s; }
 @keyframes bars { 0%,100% { transform: scaleY(.5); } 50% { transform: scaleY(1); } }
-.brand-name { font-weight: 500; letter-spacing: .01em; font-size: 19px; }
-.brand-name b { font-weight: 700; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .topbar-right { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .chip {
   display: inline-flex; align-items: center; gap: 7px;
@@ -1214,26 +1212,6 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
   .tab-intro { margin: -6px 2px 0; font-size: 13px; }
 }
 
-/* ===== Brand mark: "Audio Spark" (waveform with a lightning-bolt center bar) ===== */
-.spark-mark { width: 28px; height: 28px; overflow: visible; flex: none; }
-.spark-mark .sb, .spark-mark .sbolt { fill: url(#sparkGrad); }
-.spark-mark .sb { transform-box: fill-box; transform-origin: center; }
-.spark-mark .sbolt-hi { fill: #fff; opacity: 0; }
-/* header: a quiet bolt flash every 10 s */
-.brand .spark-mark { animation: spark-idle-glow 10s ease-out 2.5s infinite; }
-.brand .spark-mark .sbolt-hi { animation: spark-idle 10s ease-out 2.5s infinite; }
-@keyframes spark-idle { 0% { opacity: 0; } 2% { opacity: .92; } 4.5% { opacity: .92; } 7.5%, 100% { opacity: 0; } }
-@keyframes spark-idle-glow { 0% { filter: none; } 2%, 4.5% { filter: drop-shadow(0 0 5px rgba(167,139,250,.75)); } 8%, 100% { filter: none; } }
-/* interaction (hover, drag-over, file picked, transcript ready): bolt flash, then a pulse outward, once */
-.brand:hover .spark-mark, .dropzone:hover .spark-mark, .dropzone.over .spark-mark, .spark-mark.is-sparking { animation: spark-glow 1.2s ease-out 1; }
-.brand:hover .spark-mark .sbolt-hi, .dropzone:hover .spark-mark .sbolt-hi, .dropzone.over .spark-mark .sbolt-hi, .spark-mark.is-sparking .sbolt-hi { animation: spark-flash 1.2s ease-out 1; }
-.brand:hover .spark-mark .sb-i, .dropzone:hover .spark-mark .sb-i, .dropzone.over .spark-mark .sb-i, .spark-mark.is-sparking .sb-i { animation: spark-inner 1.2s cubic-bezier(.2,.8,.2,1) 1; }
-.brand:hover .spark-mark .sb-o, .dropzone:hover .spark-mark .sb-o, .dropzone.over .spark-mark .sb-o, .spark-mark.is-sparking .sb-o { animation: spark-outer 1.2s cubic-bezier(.2,.8,.2,1) 1; }
-@keyframes spark-flash { 0% { opacity: 0; } 10% { opacity: .95; } 27% { opacity: .95; } 46%, 100% { opacity: 0; } }
-@keyframes spark-inner { 0%, 14% { transform: scaleY(1); } 32% { transform: scaleY(1.38); } 62%, 100% { transform: scaleY(1); } }
-@keyframes spark-outer { 0%, 26% { transform: scaleY(1); } 46% { transform: scaleY(1.5); } 78%, 100% { transform: scaleY(1); } }
-@keyframes spark-glow { 0% { filter: none; } 10%, 27% { filter: drop-shadow(0 0 6px rgba(167,139,250,.75)); } 50%, 100% { filter: none; } }
-
 /* upload area */
 .dz-icon { position: relative; transition: transform .2s ease, border-color .2s ease; }
 .dz-icon .spark-mark { width: 40px; height: 40px; }
@@ -1261,7 +1239,7 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 .wave, .wave-sweep { transition: opacity .35s ease, width .4s ease; }
 .wave-done { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transform: scale(.7); transition: opacity .35s ease, transform .45s cubic-bezier(.2,.8,.2,1); pointer-events: none; }
 .wave-done > span { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: rgba(163,230,53,.08); border: 1px solid rgba(163,230,53,.35); }
-.wave-done svg { width: 40px; height: 40px; fill: none; stroke: url(#sparkGrad); stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 30; stroke-dashoffset: 30; transition: stroke-dashoffset .5s ease .15s; }
+.wave-done svg { width: 40px; height: 40px; fill: none; stroke: url(#sparkBars); stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 30; stroke-dashoffset: 30; transition: stroke-dashoffset .5s ease .15s; }
 .wave-wrap.done .wave, .wave-wrap.done .wave-sweep { opacity: .12; }
 .wave-wrap.done .sweep-head { opacity: 0; animation: none; }
 .wave-wrap.done .wave-done { opacity: 1; transform: none; }
@@ -1332,23 +1310,6 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 
 /* ===== Homepage polish ===== */
 
-/* Logo fix: the site-wide `svg { stroke: currentColor; stroke-width: 1.8 }` icon rule was outlining the mark's
-   bars and bolt in near-white, which washed out the gradient and hid the (white) flash. The mark is filled
-   artwork, never stroked. */
-.spark-mark, .spark-mark * { stroke: none; }
-
-/* header mark: bars breathe very slightly, the bolt flashes every 10 s */
-.brand .spark-mark .sb { animation: spark-breathe 3.6s ease-in-out var(--d, 0s) infinite; }
-.brand .spark-mark .sb:nth-child(3) { --d: .3s; }
-.brand .spark-mark .sb:nth-child(6) { --d: .6s; }
-.brand .spark-mark .sb:nth-child(7) { --d: .9s; }
-@keyframes spark-breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.86); } }
-@keyframes spark-idle { 0% { opacity: 0; } 2% { opacity: .95; } 6% { opacity: .95; } 10%, 100% { opacity: 0; } }
-@keyframes spark-idle-glow { 0% { filter: none; } 2%, 6% { filter: drop-shadow(0 0 6px rgba(167,139,250,.8)); } 11%, 100% { filter: none; } }
-/* interaction pulse wins over breathing */
-.brand:hover .spark-mark .sb-i, .brand .spark-mark.is-sparking .sb-i, .dropzone:hover .spark-mark .sb-i, .dropzone.over .spark-mark .sb-i, .spark-mark.is-sparking .sb-i { animation: spark-inner 1.2s cubic-bezier(.2,.8,.2,1) 1; }
-.brand:hover .spark-mark .sb-o, .brand .spark-mark.is-sparking .sb-o, .dropzone:hover .spark-mark .sb-o, .dropzone.over .spark-mark .sb-o, .spark-mark.is-sparking .sb-o { animation: spark-outer 1.2s cubic-bezier(.2,.8,.2,1) 1; }
-
 /* hero: the gradient in "what." drifts very slowly */
 .hero h1 .grad { background-size: 220% 100%; animation: grad-drift 16s ease-in-out infinite alternate; }
 @keyframes grad-drift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
@@ -1367,7 +1328,6 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 .dropzone.over .dz-trace-run { animation: dz-loop 1.5s linear infinite; opacity: 1; stroke-width: 2; }
 .dropzone.over .dz-trace-run.r2 { display: inline; animation-delay: -.75s; }
 @keyframes dz-loop { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
-.dropzone.lap .dz-icon .spark-mark .sbolt-hi { animation: spark-flash 1.2s ease-out 1; }
 .dropzone.over .dz-icon { box-shadow: 0 0 46px rgba(34,211,238,.32), inset 0 0 22px rgba(34,211,238,.14); }
 .dropzone.over .dz-orbit span { animation-duration: 1.6s; }
 
@@ -1401,4 +1361,54 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 @media (max-width: 640px) {
   .hear-tab { display: none; }
   .tool-more-label { min-width: 100%; }
+}
+
+/* ===== Brand: mark + wordmark (markup in src/lib/brand-markup.js, inserted into every page by vite.config.js) ===== */
+.brand-name { display: inline-flex; align-items: baseline; font-size: 19px; line-height: 1; }
+.bn-spark { font-family: "Chakra Petch", var(--font); font-weight: 600; font-size: 1.05em; letter-spacing: .02em; background: linear-gradient(90deg, #22d3ee, #3b82f6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.bn-scribe { font-weight: 600; letter-spacing: -.005em; background: linear-gradient(90deg, #a78bfa, #f472b6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* The mark is filled artwork: never stroked (the site-wide svg icon rule outlines in white otherwise). */
+.spark-mark { width: 28px; height: 28px; overflow: visible; flex: none; --gi: 1.22; --go: 1.28; }
+.spark-mark, .spark-mark * { stroke: none; }
+.spark-mark .sm.o, .spark-mark .sm.i { fill: url(#sparkBars); }
+.spark-mark .sm.c { fill: url(#sparkBolt); }
+.spark-mark .sm, .spark-mark .sl { transform-box: fill-box; transform-origin: center; }
+/* highlight layer: one light per bar, so the energy visibly travels outward */
+.spark-mark .sl { opacity: 0; fill: #ecfeff; }
+.spark-mark .sl.c { fill: #fff; filter: drop-shadow(0 0 2.5px rgba(165,243,252,.95)); }
+
+/* header, at rest: every 10 s the spark ignites and sends one quiet pulse through the bars */
+.brand .spark-mark .sl.c { animation: sp-idle-light-c 10s ease-out 2.5s infinite; }
+.brand .spark-mark .sl.i { animation: sp-idle-light-i 10s ease-out 2.5s infinite; }
+.brand .spark-mark .sl.o { animation: sp-idle-light-o 10s ease-out 2.5s infinite; }
+.brand .spark-mark .sm.c { animation: sp-idle-bar-c 10s ease-out 2.5s infinite; }
+.brand .spark-mark .sm.i { animation: sp-idle-bar-i 10s ease-out 2.5s infinite; }
+.brand .spark-mark .sm.o { animation: sp-idle-bar-o 10s ease-out 2.5s infinite; }
+@keyframes sp-idle-light-c { 0% { opacity: 0; } 1% { opacity: .95; } 2.6% { opacity: .95; } 4.8%, 100% { opacity: 0; } }
+@keyframes sp-idle-light-i { 0%, 1.7% { opacity: 0; } 3.1% { opacity: .6; } 6%, 100% { opacity: 0; } }
+@keyframes sp-idle-light-o { 0%, 3.1% { opacity: 0; } 4.8% { opacity: .5; } 7.7%, 100% { opacity: 0; } }
+@keyframes sp-idle-bar-c { 0% { transform: scale(1); } 1%, 2.6% { transform: scale(1.05); } 4.8%, 100% { transform: scale(1); } }
+@keyframes sp-idle-bar-i { 0%, 1.7% { transform: scaleY(1); } 3.1% { transform: scaleY(calc(1 + (var(--gi) - 1) * .7)); } 6%, 100% { transform: scaleY(1); } }
+@keyframes sp-idle-bar-o { 0%, 3.1% { transform: scaleY(1); } 4.8% { transform: scaleY(calc(1 + (var(--go) - 1) * .7)); } 7.7%, 100% { transform: scaleY(1); } }
+
+/* interaction (hover, drag-over, file picked, transcript ready, upload-edge lap): the full pulse, once, 1.2 s:
+   spark (0–0.3 s) → inner bars (~0.3 s) → outer bars (~0.5 s), each back to its own color */
+.brand:hover .spark-mark .sl.c, .brand .spark-mark.is-sparking .sl.c, .spark-mark.is-sparking .sl.c, .dropzone:hover .spark-mark .sl.c, .dropzone.over .spark-mark .sl.c, .dropzone.lap .spark-mark .sl.c { animation: sp-light-c 1.2s ease-out 1; }
+.brand:hover .spark-mark .sl.i, .brand .spark-mark.is-sparking .sl.i, .spark-mark.is-sparking .sl.i, .dropzone:hover .spark-mark .sl.i, .dropzone.over .spark-mark .sl.i, .dropzone.lap .spark-mark .sl.i { animation: sp-light-i 1.2s ease-out 1; }
+.brand:hover .spark-mark .sl.o, .brand .spark-mark.is-sparking .sl.o, .spark-mark.is-sparking .sl.o, .dropzone:hover .spark-mark .sl.o, .dropzone.over .spark-mark .sl.o, .dropzone.lap .spark-mark .sl.o { animation: sp-light-o 1.2s ease-out 1; }
+.brand:hover .spark-mark .sm.c, .brand .spark-mark.is-sparking .sm.c, .spark-mark.is-sparking .sm.c, .dropzone:hover .spark-mark .sm.c, .dropzone.over .spark-mark .sm.c, .dropzone.lap .spark-mark .sm.c { animation: sp-bar-c 1.2s ease-out 1; }
+.brand:hover .spark-mark .sm.i, .brand .spark-mark.is-sparking .sm.i, .spark-mark.is-sparking .sm.i, .dropzone:hover .spark-mark .sm.i, .dropzone.over .spark-mark .sm.i, .dropzone.lap .spark-mark .sm.i { animation: sp-bar-i 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+.brand:hover .spark-mark .sm.o, .brand .spark-mark.is-sparking .sm.o, .spark-mark.is-sparking .sm.o, .dropzone:hover .spark-mark .sm.o, .dropzone.over .spark-mark .sm.o, .dropzone.lap .spark-mark .sm.o { animation: sp-bar-o 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+@keyframes sp-light-c { 0% { opacity: 0; } 8% { opacity: .95; } 22% { opacity: .95; } 40%, 100% { opacity: 0; } }
+@keyframes sp-light-i { 0%, 14% { opacity: 0; transform: scaleY(1); } 26% { opacity: .75; transform: scaleY(var(--gi)); } 50%, 100% { opacity: 0; transform: scaleY(1); } }
+@keyframes sp-light-o { 0%, 26% { opacity: 0; transform: scaleY(1); } 40% { opacity: .65; transform: scaleY(var(--go)); } 64%, 100% { opacity: 0; transform: scaleY(1); } }
+@keyframes sp-bar-c { 0% { transform: scale(1); } 8%, 22% { transform: scale(1.06); } 40%, 100% { transform: scale(1); } }
+@keyframes sp-bar-i { 0%, 14% { transform: scaleY(1); } 26% { transform: scaleY(var(--gi)); } 50%, 100% { transform: scaleY(1); } }
+@keyframes sp-bar-o { 0%, 26% { transform: scaleY(1); } 40% { transform: scaleY(var(--go)); } 64%, 100% { transform: scaleY(1); } }
+
+/* phones and touch: the same outward pulse, smaller and without glow */
+@media (hover: none), (max-width: 640px) {
+  .spark-mark { --gi: 1.1; --go: 1.12; }
+  .spark-mark .sl.c { filter: none; }
 }

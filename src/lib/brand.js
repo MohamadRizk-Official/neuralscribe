@@ -14,5 +14,6 @@ export function sparkPulse(root = document) {
 }
 
 document.addEventListener('animationend', (e) => {
-  if (e.animationName === 'spark-glow') e.target.classList?.remove('is-sparking');
+  // the outer bars' light is the last step of the pulse
+  if (e.animationName === 'sp-light-o') e.target.closest?.('.spark-mark')?.classList.remove('is-sparking');
 });

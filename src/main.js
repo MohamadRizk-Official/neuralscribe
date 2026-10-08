@@ -1228,14 +1228,14 @@ const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document
 
 // When the header bolt flashes (every 10 s), a signal runs one lap around the upload area's edge.
 {
-  const hi = document.querySelector('.brand .spark-mark .sbolt-hi');
+  const hi = document.querySelector('.brand .spark-mark .sl.c'); // the spark's light: its idle animation marks each ignition
   const lap = () => {
     if (calmMotion.matches || !onLanding()) return;
     els.dropzone.classList.remove('lap');
     void els.dropzone.offsetWidth;
     els.dropzone.classList.add('lap');
   };
-  const onIdle = (e) => { if (e.animationName === 'spark-idle') setTimeout(lap, 120); };
+  const onIdle = (e) => { if (e.animationName === 'sp-idle-light-c') setTimeout(lap, 120); };
   hi?.addEventListener('animationstart', onIdle);
   hi?.addEventListener('animationiteration', onIdle);
   els.dropzone.addEventListener('animationend', (e) => { if (e.animationName === 'dz-lap') els.dropzone.classList.remove('lap'); });
