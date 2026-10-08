@@ -26,23 +26,65 @@
       <div class="topbar-right"><div id="accountSlot"></div></div>
     </header>
 
-        <main class="app bill-app">
+    <main class="app bill-app">
       <section class="bill-hero">
-        <div class="eyebrow mono"><span class="pulse"></span>simple monthly plans</div>
-        <h1 class="page-title">Pricing</h1>
-        <p class="bill-sub">Every plan includes the full app: on-device transcription, your private library, search, summaries, notes, Ask and everything in Create. Plans differ only in how much you can transcribe each month.</p>
+        <div class="eyebrow mono"><span class="pulse"></span>more than transcription</div>
+        <h1 class="page-title">Your recordings, <span class="grad">put to work</span>.</h1>
+        <p class="bill-sub">Turn recordings into summaries, searchable notes, answers, study material, action plans, drafts and more. Every plan includes SparkScribe’s full AI workspace. Choose based on how much you record each month.</p>
+        <p class="bill-privacy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg><span><b>Audio stays on your device.</b> When you use an AI feature, only the transcript text it needs is sent to our AI provider.</span></p>
       </section>
       <div class="bill-notice" id="notice" hidden></div>
       <section class="plan-grid" id="plans" aria-live="polite"><div class="plan-card skel"></div><div class="plan-card skel"></div><div class="plan-card skel"></div></section>
+
+      <section class="incl" aria-labelledby="inclTitle">
+        <header class="incl-head">
+          <h2 id="inclTitle">Every plan includes</h2>
+          <p>The same workspace on Free, Plus and Pro. Plans differ only in transcription time.</p>
+        </header>
+        <div class="incl-grid">
+          <div class="incl-group">
+            <h3><span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h2m3-5v10m3-13v16m3-11v6m3-3h2"/></svg></span>Transcribe</h3>
+            <ul>
+              <li><b>On-device transcription</b><span>Audio is never uploaded</span></li>
+              <li><b>Speaker detection</b><span>Who said what, line by line</span></li>
+              <li><b>Timestamps</b><span>Jump to any moment</span></li>
+              <li><b>Fast or Best Accuracy</b><span>Optimized for English</span></li>
+            </ul>
+          </div>
+          <div class="incl-group">
+            <h3><span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></span>Understand</h3>
+            <ul>
+              <li><b>AI Summary</b><span>Key points, plus chapters for long recordings</span></li>
+              <li><b>Organized Notes</b><span>Decisions, action items, dates and key facts</span></li>
+              <li><b>Ask your recordings</b><span>Answers that link to the exact moment</span></li>
+              <li><b>Library search</b><span>Find any word across every recording</span></li>
+            </ul>
+          </div>
+          <div class="incl-group">
+            <h3><span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span>Create</h3>
+            <ul class="chips">
+              <li>Study Guides</li><li>Flashcards</li><li>Practice Quizzes</li><li>Meeting Recaps</li><li>Action Plans</li><li>Reply Drafts</li><li>Follow-Up Emails</li><li>Interview Q&amp;A</li><li>Episode Notes</li>
+            </ul>
+          </div>
+          <div class="incl-group">
+            <h3><span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg></span>Export</h3>
+            <ul class="chips">
+              <li>PDF</li><li>Word</li><li>Markdown</li><li>Text</li><li>SRT &amp; VTT subtitles</li>
+            </ul>
+            <p class="incl-note">Subtitle files are available when a recording has line timestamps.</p>
+          </div>
+        </div>
+      </section>
+
       <section class="bill-faq">
-        <div><h3>What counts toward my plan?</h3><p>Only the length of recordings you transcribe. Opening, searching, summaries, notes, Ask, study tools and exports never use your time.</p></div>
+        <div><h3>What counts toward my plan?</h3><p>Only the length of recordings you transcribe. Opening recordings, searching, summaries, notes, Ask, Create tools and exports never use your time.</p></div>
         <div><h3>When does my time reset?</h3><p>Free resets on the 1st of each month (UTC). Paid plans reset when your subscription renews each month.</p></div>
         <div><h3>What if I cancel or downgrade?</h3><p>Your paid plan stays active until the end of the period you paid for. Your recordings, notes and everything you created stay in your library; only new transcription is limited.</p></div>
-        <div><h3>Is my audio uploaded?</h3><p>No. Transcription runs on your device. Your plan only uses the length of each recording, never its audio, and Stripe only handles your payment details.</p></div>
+        <div><h3>What leaves my device?</h3><p>Never your audio. Transcripts you save are stored privately in your account, and when you use an AI feature only the transcript text it needs is sent to our AI provider, Anthropic.</p></div>
       </section>
     </main>
 
-    <footer class="foot mono">Payments are handled by Stripe · SparkScribe never sees your card · audio is never uploaded</footer>
+    <footer class="foot mono">Monthly plans · cancel anytime · payments are handled by Stripe, SparkScribe never sees your card · audio stays on your device</footer>
     <script type="module" src="/src/pages/pricing.js"></script>
   </body>
 </html>
