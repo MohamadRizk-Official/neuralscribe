@@ -1298,6 +1298,7 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 /* ---------- Pricing presentation (compact) ---------- */
 .bill-app { gap: 40px; }
 .bill-hero { display: grid; gap: 8px; }
+.bill-hero > .eyebrow { justify-self: start; }
 .bill-hero .page-title { max-width: 24ch; margin-bottom: 2px; }
 .bill-sub { font-size: 18px; color: var(--text); margin: 0; }
 .bill-sub2 { margin: 0; color: var(--muted); font-size: 15px; }
