@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#04050d" />
+    <meta name="robots" content="noindex" />
+    <meta name="application-name" content="SparkScribe" />
+    <title>Pricing — SparkScribe</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true">
+      <div class="bg-grid"></div><div class="bg-glow bg-glow-a"></div><div class="bg-glow bg-glow-b"></div><div class="bg-glow bg-glow-c"></div><div class="bg-noise"></div>
+    </div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="SparkScribe home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">Spark<b>Scribe</b></span>
+      </a>
+      <div class="topbar-right"><div id="accountSlot"></div></div>
+    </header>
+
+        <main class="app bill-app">
+      <section class="bill-hero">
+        <div class="eyebrow mono"><span class="pulse"></span>simple monthly plans</div>
+        <h1 class="page-title">Pricing</h1>
+        <p class="bill-sub">Every plan includes the full app: on-device transcription, your private library, search, summaries, notes, Ask and everything in Create. Plans differ only in how much you can transcribe each month.</p>
+      </section>
+      <div class="bill-notice" id="notice" hidden></div>
+      <section class="plan-grid" id="plans" aria-live="polite"><div class="plan-card skel"></div><div class="plan-card skel"></div><div class="plan-card skel"></div></section>
+      <section class="bill-faq">
+        <div><h3>What counts toward my plan?</h3><p>Only the length of recordings you transcribe. Opening, searching, summaries, notes, Ask, study tools and exports never use your time.</p></div>
+        <div><h3>When does my time reset?</h3><p>Free resets on the 1st of each month (UTC). Paid plans reset when your subscription renews each month.</p></div>
+        <div><h3>What if I cancel or downgrade?</h3><p>Your paid plan stays active until the end of the period you paid for. Your recordings, notes and everything you created stay in your library; only new transcription is limited.</p></div>
+        <div><h3>Is my audio uploaded?</h3><p>No. Transcription runs on your device. Your plan only uses the length of each recording, never its audio, and Stripe only handles your payment details.</p></div>
+      </section>
+    </main>
+
+    <footer class="foot mono">Payments are handled by Stripe · SparkScribe never sees your card · audio is never uploaded</footer>
+    <script type="module" src="/src/pages/pricing.js"></script>
+  </body>
+</html>

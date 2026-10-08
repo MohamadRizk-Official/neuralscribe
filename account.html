@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#04050d" />
+    <meta name="robots" content="noindex" />
+    <meta name="application-name" content="SparkScribe" />
+    <title>Account — SparkScribe</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true">
+      <div class="bg-grid"></div><div class="bg-glow bg-glow-a"></div><div class="bg-glow bg-glow-b"></div><div class="bg-glow bg-glow-c"></div><div class="bg-noise"></div>
+    </div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="SparkScribe home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">Spark<b>Scribe</b></span>
+      </a>
+      <div class="topbar-right"><div id="accountSlot"></div></div>
+    </header>
+
+        <main class="app bill-app">
+      <section class="bill-hero">
+        <div class="eyebrow mono"><span class="pulse"></span>plan &amp; usage</div>
+        <h1 class="page-title">Account</h1>
+      </section>
+      <div class="bill-notice" id="notice" hidden></div>
+      <section class="acct-grid" id="account" aria-live="polite"><div class="panel acct-card skel"></div><div class="panel acct-card skel"></div></section>
+    </main>
+
+    <footer class="foot mono">Payments are handled by Stripe · SparkScribe never sees your card · audio is never uploaded</footer>
+    <script type="module" src="/src/pages/account.js"></script>
+  </body>
+</html>

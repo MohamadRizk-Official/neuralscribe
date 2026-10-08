@@ -5,6 +5,7 @@ import { saveTranscript, updateTranscriptText, updateRecordingType, stashPending
 import { toStoredSegments, RECORDING_TYPES } from './lib/segments.js';
 import { cleanText } from './lib/clean.js';
 import { mountInsights } from './insights/insights.js';
+import { loadPlans, getBillingStatus, authorizeTranscription, startCheckout, allowanceLabel, usageText, usageLevel, durationText, dateText } from './lib/billing.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -21,6 +22,7 @@ const els = {
   player: $('player'), playBtn: $('playBtn'), backBtn: $('backBtn'), fwdBtn: $('fwdBtn'), pbTime: $('pbTime'),
   pbSeek: $('pbSeek'), speedBtn: $('speedBtn'), followBtn: $('followBtn'),
   errorPanel: $('errorPanel'), errorText: $('errorText'), retryBtn: $('retryBtn'),
+  gatePanel: $('gatePanel'), usageLine: $('usageLine'),
   deviceChip: $('deviceChip'), menu: $('menu'), cpuNote: $('cpuNote'), cpuWhy: $('cpuWhy'),
   modeInputs: [...document.querySelectorAll('input[name="mode"]')], modeNote: $('modeNote'),
   advanced: $('advanced'), advSummary: $('advSummary'), vocabInput: $('vocabInput'),
@@ -202,7 +204,7 @@ els.newBtn.addEventListener('click', reset);
 els.retryBtn.addEventListener('click', reset);
 
 function show(panel) {
-  [els.dropPanel, els.progressPanel, els.resultsPanel, els.errorPanel].forEach((p) => p.classList.toggle('hidden', p !== panel));
+  [els.dropPanel, els.progressPanel, els.resultsPanel, els.errorPanel, els.gatePanel].forEach((p) => p.classList.toggle('hidden', p !== panel));
   window.scrollTo({ top: 0 });
 }
 function reset() {
@@ -222,6 +224,59 @@ function reset() {
 function showError(msg) {
   els.errorText.textContent = msg;
   show(els.errorPanel);
+}
+
+// ---------- plan limits ----------
+// Transcribing needs an account (Free works), and a recording has to fit in the time left on the plan.
+// The server decides (/api/billing authorize); the database checks again when the transcript is saved.
+const escHtml = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function showGate(title, text, actions) {
+  els.gatePanel.innerHTML = `<h2>${title}</h2><p>${text}</p><div class="gate-actions">${actions}<button class="btn btn-ghost" type="button" data-gate="back">Back</button></div>`;
+  els.gatePanel.querySelector('[data-gate="back"]').addEventListener('click', reset);
+  els.gatePanel.querySelectorAll('[data-upgrade]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true;
+    b.textContent = 'Opening secure checkout…';
+    try { await startCheckout(b.dataset.upgrade); } catch (err) { b.disabled = false; b.textContent = 'Try again'; toast(err.message || "Checkout couldn't be opened."); }
+  }));
+  show(els.gatePanel);
+}
+async function signInGate() {
+  const free = (await loadPlans().catch(() => [])).find((p) => p.is_default);
+  showGate('Sign in to transcribe',
+    `SparkScribe is free to start${free ? `: the ${escHtml(free.name)} plan includes ${escHtml(allowanceLabel(free.monthly_seconds))} of transcription a month` : ''}. Your audio still never leaves this device.`,
+    `<a class="btn btn-primary" href="/auth?next=${encodeURIComponent('/')}">Sign in or create a free account</a>`);
+}
+// -> true if transcription may start
+async function checkQuota(seconds) {
+  let v;
+  try { v = await authorizeTranscription(seconds); } catch (err) {
+    if (err.status === 401) { await signInGate(); return false; }
+    return true; // billing unreachable: don't block; the save is still checked by the database
+  }
+  if (v.ok) return true;
+  const plans = await loadPlans().catch(() => []);
+  const plan = plans.find((p) => p.key === v.plan);
+  const next = plans.find((p) => p.key === v.upgradeTo);
+  const resets = v.periodEnd ? ` Your time ${v.plan === 'free' || !plan?.billing_interval ? 'resets' : 'renews'} on ${escHtml(dateText(v.periodEnd))}.` : '';
+  const title = v.reason === 'limit_reached'
+    ? (plan?.billing_interval ? `You've reached your ${escHtml(allowanceLabel(v.monthlySeconds).replace(/ (hour|minute)s$/, '-$1'))} monthly transcription limit` : `You've used your ${escHtml(allowanceLabel(v.monthlySeconds))} for this month`)
+    : 'Not enough transcription time left';
+  const text = v.reason === 'limit_reached'
+    ? `Your recordings and everything in your library are still available.${resets}`
+    : `This recording is about ${escHtml(durationText(seconds))}, but you have ${escHtml(durationText(v.remainingSeconds))} remaining.${resets}`;
+  const actions = next ? `<button class="btn btn-primary" type="button" data-upgrade="${escHtml(next.key)}">Upgrade to ${escHtml(next.name)} · ${escHtml(allowanceLabel(next.monthly_seconds))}/month</button><a class="btn btn-ghost" href="/pricing">Compare plans</a>` : '';
+  showGate(title + '.', text, actions);
+  return false;
+}
+// The calm usage line under the drop zone (signed in only)
+async function refreshUsageLine() {
+  if (!isConfigured || !els.usageLine) return;
+  const s = (session ?? (await getSession())) ? await getBillingStatus().catch(() => null) : null;
+  if (!s) { els.usageLine.hidden = true; return; }
+  const level = usageLevel(Number(s.usedSeconds), s.monthlySeconds);
+  els.usageLine.className = `usage-line mono ${level}`;
+  els.usageLine.innerHTML = `${escHtml(s.planName)} · ${escHtml(usageText(Number(s.usedSeconds), s.monthlySeconds))} used this ${s.plan === 'free' ? 'month' : 'period'}${level !== 'ok' ? ` · <a href="/pricing">${level === 'high' ? 'Get more time' : 'Plans'}</a>` : ' · <a href="/account">Usage</a>'}`;
+  els.usageLine.hidden = false;
 }
 
 // ---------- progress ----------
@@ -335,6 +390,10 @@ function onDownload(p) {
 }
 
 async function start(file) {
+  if (isConfigured) {
+    session = session ?? (await getSession());
+    if (!session) return signInGate();
+  }
   currentFile = file;
   downloads.clear();
   els.downloads.innerHTML = '';
@@ -361,6 +420,9 @@ async function start(file) {
     return;
   }
   if (currentFile !== file) return; // cancelled while decoding
+  // the length is known now and nothing has been transcribed yet: check it fits the plan
+  if (isConfigured && !(await checkQuota(decoded.duration))) return;
+  if (currentFile !== file) return;
   els.fileSub.textContent += ` · ${fmtTime(decoded.duration)}`;
   drawWave(peaks(decoded.samples, 700));
 
@@ -1041,6 +1103,7 @@ if (isConfigured) {
       const signedInNow = !session && s;
       session = s;
       insights.refresh();
+      refreshUsageLine();
       if (!state?.lines) return;
       if (signedInNow && save.status === 'signed-out') doSave(); // signed in from elsewhere: save what's on screen
       else if (!s && save.status === 'idle') autoSave();
@@ -1076,8 +1139,10 @@ async function doSave() {
     save.id = await saveTranscript(savePayload());
     save.status = 'saved';
     insights.setTranscription();
+    refreshUsageLine();
   } catch (err) {
-    save.status = 'error';
+    // the database refuses a save that doesn't fit the plan's remaining time
+    save.status = /quota_exceeded/.test(err?.message || '') ? 'quota' : 'error';
     save.error = err.message || String(err);
   }
   renderSaveBar();
@@ -1118,6 +1183,7 @@ function renderSaveBar() {
     syncing: ['busy', CLOUD, 'Saving your changes…', ''],
     saved: ['ok', CHECK, 'Saved to My Library <span class="save-note">· transcript text only, audio stays on this device</span>', `<a class="btn btn-ghost btn-sm" href="/transcript?id=${encodeURIComponent(save.id || '')}">Open saved copy</a>`],
     error: ['bad', WARN, `Couldn't save to your library: ${esc(save.error)}. Your transcript is still here, and you can export it.`, '<button class="btn btn-ghost btn-sm" type="button" data-act="retry">Retry</button>'],
+    quota: ['bad', WARN, 'Not saved: this recording is longer than the transcription time left on your plan. It’s still here, and you can export it.', '<a class="btn btn-ghost btn-sm" href="/pricing">See plans</a>'],
     'sync-error': ['bad', WARN, `Couldn't save your latest edits: ${esc(save.error)}`, '<button class="btn btn-ghost btn-sm" type="button" data-act="retry">Retry</button>'],
   };
   const v = views[save.status];

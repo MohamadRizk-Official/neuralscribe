@@ -1,5 +1,6 @@
 // Session helpers + the small account area in the top bar (shared by every page).
 import { supabase, isConfigured } from './supabase.js';
+import { getBillingStatus, usageText } from './billing.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -91,12 +92,18 @@ export function mountAccountMenu(slot, { onChange } = {}) {
         <div class="acct-head">${p.name ? `<b>${esc(p.name)}</b>` : ''}<span>${esc(p.email)}</span></div>
         <a role="menuitem" href="/library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6v14H4zM14 5h6v14h-6z"/></svg>My Library</a>
         <a role="menuitem" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0-12-4 4m4-4 4 4M5 20h14"/></svg>New transcription</a>
+        <a role="menuitem" href="/account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V9m5 9V5m5 13v-6m5 6V8"/></svg><span class="acct-plan-item">Plan &amp; usage<small data-usage></small></span></a>
         <hr />
         <button role="menuitem" type="button" data-signout><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 12H4m0 0 4-4m-4 4 4 4M13 5h6v14h-6"/></svg>Sign out</button>`;
       menu.querySelector('[data-signout]').addEventListener('click', async () => {
         await signOut();
-        if (/^\/(library|transcript)/.test(location.pathname)) location.replace('/');
+        if (/^\/(library|transcript|account)/.test(location.pathname)) location.replace('/');
       });
+      // plan + this period's usage, fetched when the menu opens (display only)
+      getBillingStatus().then((b) => {
+        const el = menu?.querySelector('[data-usage]');
+        if (el) el.textContent = `${b.planName} · ${usageText(Number(b.usedSeconds), b.monthlySeconds)}`;
+      }, () => {});
       slot.appendChild(menu);
       setTimeout(() => document.addEventListener('pointerdown', outside), 0);
     });
