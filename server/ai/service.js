@@ -5,6 +5,7 @@
 //   generateNotes()           organized reference / study notes for the recording type
 //   generateInsights()        type-specific extraction (actions, decisions, dates, quotes…)
 //   askTranscript()           grounded Q&A with timestamp citations, streamed
+//   generateArtifact()        Phase 5 tools from the Create tab (study guide, flashcards, quiz, recap, drafts…)
 //   (cleanTranscript is rule-based and runs in the browser: src/lib/clean.js)
 //
 // Cost rules enforced here:
@@ -19,6 +20,7 @@ import { getProvider, taskConfig, AIError } from './provider.js';
 import { createMeter } from './usage.js';
 import { ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, NOTES_SCHEMA, notesInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
 import { groundStructured, groundChapters, groundAnswer } from './grounding.js';
+import { TOOLS, ARTIFACT_KINDS, normalizeSettings, cardCount, questionCount } from './tools.js';
 import { selectContext, needsRetrieval, formatExcerpts } from './retrieve.js';
 import { segmentsFromRow, modelLine, estimateTokens, normalizeRecordingType, RECORDING_TYPES } from '../../src/lib/segments.js';
 
@@ -126,6 +128,14 @@ async function generateNotes(row, segments, type, meter) {
 
 const GENERATORS = { overview: generateOverview, detailed_summary: generateDetailedSummary, notes: generateNotes, insights: generateInsights };
 
+function publicArtifact(a) {
+  return {
+    id: a.id, kind: a.kind, settings: a.settings, settingsKey: a.settings_key, status: a.status,
+    content: a.content ?? null, error: a.status === 'failed' ? a.error : null, sourceVersion: a.source_version,
+    progress: a.progress ?? null, updatedAt: a.updated_at,
+  };
+}
+
 function publicInsight(i) {
   return {
     kind: i.kind, recordingType: i.recording_type, status: i.status, content: i.status === 'ready' ? i.content : null,
@@ -148,13 +158,57 @@ async function loadTranscript(db, transcriptionId) {
 export async function getState(db, transcriptionId) {
   const row = await db.getTranscription(transcriptionId);
   if (!row) throw new AIError("This transcript doesn't exist or isn't yours.", { status: 404, code: 'not_found' });
-  const [insights, questions] = await Promise.all([db.listInsights(transcriptionId), db.listQuestions(transcriptionId)]);
+  const [insights, questions, artifacts] = await Promise.all([db.listInsights(transcriptionId), db.listQuestions(transcriptionId), db.listArtifacts(transcriptionId)]);
   return {
     contentVersion: row.content_version,
     recordingType: RECORDING_TYPES.includes(row.recording_type) ? row.recording_type : null,
     insights: insights.map(publicInsight),
     questions: questions.map((q) => ({ id: q.id, question: q.question, answer: q.answer, refs: q.refs, found: q.found, sourceVersion: q.source_version, createdAt: q.created_at })),
+    artifacts: artifacts.map(publicArtifact),
   };
+}
+
+// Phase 5: generate (or return the stored) output of one tool with given settings. Same cost rules as above:
+// stored results are reused for the same (version, kind, settings); only an explicit force regenerates.
+export async function generateArtifact(db, { transcriptionId, kind, settings, force = false, userId = null }) {
+  if (!ARTIFACT_KINDS.includes(kind)) throw new AIError('Unknown tool.', { status: 400, code: 'bad_request' });
+  const tool = TOOLS[kind];
+  const { settings: normalized, key } = normalizeSettings(kind, settings);
+  const meter = createMeter({ feature: key ? `tool:${kind}:${key}` : `tool:${kind}`, transcriptionId, userId });
+  const { row, segments } = await loadTranscript(db, transcriptionId);
+  const version = row.content_version;
+  const fromStorage = (a) => { meter.finish({ cached: true }); return { artifact: publicArtifact(a), cached: true }; };
+
+  const existing = await db.getArtifact(transcriptionId, kind, key);
+  if (existing) {
+    if (existing.status === 'ready' && existing.source_version === version && !force) return fromStorage(existing);
+    if (existing.status === 'generating' && Date.now() - new Date(existing.updated_at).getTime() < GENERATING_TIMEOUT_MS) return fromStorage(existing);
+  }
+  // remembered before the row is claimed: a failed update falls back to the previous result and its version
+  const previous = existing?.content ? existing.source_version : null;
+  const claimed = await db.startArtifact(existing, { transcriptionId, kind, settings: normalized, settingsKey: key, version });
+  if (!claimed) return fromStorage(await db.getArtifact(transcriptionId, kind, key));
+
+  try {
+    const minutes = (row.duration_seconds || segments.at(-1)?.end || 0) / 60;
+    const ctx = {
+      count: kind === 'flashcards' ? cardCount(minutes, normalized.size) : kind === 'quiz' ? questionCount(minutes, normalized.size) : null,
+      transcriptText: segments.map((s) => s.text).join(' '),
+    };
+    const r = await analyze({ task: tool.task, schema: tool.schema, instructions: tool.instructions(ctx), row, segments, meter });
+    const g = groundStructured(r.json, segments);
+    const extra = tool.validate(g.content, segments, ctx) || 0;
+    tool.after?.(g.content, segments);
+    if (ctx.count) g.content.target = ctx.count;
+    const saved = await db.finishArtifact(claimed.id, { content: g.content, model: r.model, usage: r.usage });
+    meter.finish({ groundingPassed: g.dropped + extra === 0, droppedItems: g.dropped + extra });
+    return { artifact: publicArtifact(saved), cached: false, dropped: g.dropped + extra };
+  } catch (err) {
+    const message = err instanceof AIError ? err.message : 'Generation failed.';
+    meter.finish({ error: message });
+    await db.failArtifact(claimed.id, message, previous).catch(() => {});
+    throw err instanceof AIError ? err : new AIError(message);
+  }
 }
 
 // Generate (or return the stored) result of one kind.

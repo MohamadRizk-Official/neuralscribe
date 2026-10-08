@@ -72,3 +72,7 @@ export async function askQuestion(id, question, at, { onStatus, onDelta } = {}) 
   if (!result) throw new ApiError("The answer couldn't be generated. Try again.", 'incomplete', 500);
   return result;
 }
+
+// Phase 5 (Create tab): generate one tool output, or get the stored one back if it is still current.
+export const requestTool = (id, kind, settings = {}, force = false) =>
+  call('/api/tools', { method: 'POST', body: JSON.stringify({ transcriptionId: id, kind, settings, force }) });

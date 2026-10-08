@@ -17,6 +17,18 @@ const TASKS = {
   notes: { env: 'AI_MODEL_SUMMARY', effort: 'medium', maxTokens: 10000 },
   insights: { env: 'AI_MODEL_INSIGHTS', effort: 'medium', maxTokens: 10000 },
   reduce: { env: 'AI_MODEL_SUMMARY', effort: 'medium', maxTokens: 10000 },
+  // Phase 5 tools (Create tab): same default model; long structured outputs get more room
+  study_guide: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 16000 },
+  flashcards: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 12000 },
+  quiz: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 12000 },
+  definitions: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 8000 },
+  exam_points: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 8000 },
+  meeting_recap: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 12000 },
+  action_plan: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 8000 },
+  followup_email: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 8000 },
+  reply_draft: { env: 'AI_MODEL_TOOLS', effort: 'low', maxTokens: 4000 },
+  interview_qa: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 12000 },
+  episode_notes: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 12000 },
   ask: { env: 'AI_MODEL_ASK', effort: 'low', maxTokens: 3000 },
   expand: { env: 'AI_MODEL_ASK', effort: 'low', maxTokens: 600 },
 };

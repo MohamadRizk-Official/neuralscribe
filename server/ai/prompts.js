@@ -228,3 +228,6 @@ export const EXPAND_SCHEMA = obj({ keywords: list(str(), 'Words and short phrase
 export const expandInstructions = (question) => `A user is searching a long transcript for the answer to this question:
 """${question}"""
 List 5–15 words or short phrases that are likely to appear in the transcript where this is discussed: the key terms, synonyms, related words, and how people would say it out loud (e.g. "deadline" → "due", "by Friday", "before"). Same language as the question unless the question suggests otherwise.`;
+
+// shared with the Phase 5 tools (server/ai/tools.js)
+export { str, nullableStr, refs, evidence, obj, list, point, decision, actionItem, dateItem, quote, DECISION_RULE, ACTION_RULE };

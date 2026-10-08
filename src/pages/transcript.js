@@ -4,7 +4,7 @@ import { isConfigured } from '../lib/supabase.js';
 import { mountAccountMenu, requireUser, esc } from '../lib/account.js';
 import { getTranscript, updateRecordingType, fmtDuration, fmtDate, langName } from '../lib/transcripts.js';
 import { renameTranscript, setFavorite, deleteTranscripts, markOpened, getRecordingMeta, listFolders } from '../lib/library.js';
-import { promptDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
+import { promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
 import { segmentsFromRow, fmtClock, RECORDING_TYPES } from '../lib/segments.js';
 import { cleanText } from '../lib/clean.js';
 import { mountInsights } from '../insights/insights.js';
@@ -177,6 +177,10 @@ function initials(name) {
       duration: () => row.duration_seconds || segments.at(-1)?.end || 0,
       autoGenerate: false, // reopening a saved transcript never starts generation by itself
       coarse,
+      title: () => row.title,
+      createdAt: () => row.created_at,
+      toast,
+      confirm: (title, text, okLabel, danger) => confirmDialog({ title, bodyHtml: `<p>${esc(text)}</p>`, confirmLabel: okLabel, danger }),
     },
   });
   ui.setTranscription();
@@ -192,7 +196,6 @@ function initials(name) {
   }
 
   $('tActions').classList.remove('hidden');
-  const base = row.title.replace(/[\\/:*?"<>|]+/g, '_');
   const exportText = () => {
     if (view !== 'clean' || !segments.length) return row.transcript_text;
     // same layout as the saved text, with the clean wording
@@ -206,15 +209,10 @@ function initials(name) {
     return `${head}\n\n${out.map((g) => `[${fmtClock(g.start)}] ${g.speaker}:\n${g.text}`).join('\n\n')}\n`;
   };
   $('copyBtn').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(exportText()); toast(view === 'clean' ? 'Copied (clean version)' : 'Copied to clipboard'); } catch { toast('Copy failed. Try .txt instead'); }
+    try { await navigator.clipboard.writeText(exportText()); toast(view === 'clean' ? 'Copied (clean version)' : 'Copied to clipboard'); } catch { toast('Copy failed. Try Export instead'); }
   });
-  $('txtBtn').addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([exportText()], { type: 'text/plain;charset=utf-8' }));
-    a.download = `${base}${view === 'clean' ? ' (clean)' : ''}.txt`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  });
+  // transcript, summary, notes, insights and anything created, as PDF / Word / Markdown / text / subtitles
+  $('exportBtn').addEventListener('click', () => ui.openExport(view === 'clean' ? 'transcript_clean' : 'transcript'));
 
   $('deleteBtn').addEventListener('click', async () => {
     if (!(await confirmDeleteRecordings(1, row.title))) return;

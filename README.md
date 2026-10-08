@@ -101,6 +101,7 @@ See [accuracy/README.md](accuracy/README.md) for measuring accuracy on real reco
   it can't change meaning. The original is never modified and is what gets saved; exports follow the view on screen.
 - **Tabs:** Transcript · Summary · Notes · Ask · Insights (below).
 - **My Library:** search across every saved transcript with timestamps, folders, favorites, filters (below).
+- **Create:** study guides, flashcards, quizzes, meeting recaps, drafts and exports (below).
 
 ## Summary, Notes, Ask and Insights
 
@@ -151,6 +152,41 @@ per summary or insight set and about $0.001–0.002 per question (thinking token
 
 **Privacy.** Only transcript text (plus length and speaker labels) is sent to Anthropic, and only when one of these
 features runs. Audio is never sent. API keys stay on the server.
+
+## Create: study tools, outputs and exports
+
+The **Create** tab on a saved recording (`src/insights/tools.js`, server `server/ai/tools.js`, endpoint `api/tools.js`)
+turns it into finished material. What it offers depends on the recording type; nothing is generated until the user
+clicks Create, and every result is saved with the recording.
+
+| Type | Tools |
+| --- | --- |
+| Lecture | Study Guide, Flashcards (fewer / standard / more), Practice Quiz (multiple choice, true/false, short answer; score, review, free retakes), Key Definitions, Possible Exam Points |
+| Meeting | Meeting Recap, Action Plan, Follow-up Email draft |
+| Interview | Interview Q&A with verbatim quotes |
+| Podcast | Episode Notes (summary, chapter outline, takeaways, verbatim quotes) |
+| General | Action Plan |
+| Voice message | Reply Draft |
+
+Plus links to results that already exist (Notes, Summary, Insights) and **Export** for every type.
+
+- **Grounding.** Same rules as Phase 3 (exact meaning, no outside knowledge, speaker labels only), and every item must
+  cite real lines. `quote` and `evidence` fields must appear word for word. On top of that: an "explicit exam" item
+  needs exam wording in its quote or line (otherwise it becomes "worth reviewing"); quiz questions must have exactly
+  one matching option and verbatim evidence; flashcards are de-duplicated and vague cards dropped; meeting decisions
+  and action items need evidence, owner/deadline only when stated; drafts list the facts they use, and any date, time,
+  amount or urgency word in a draft that the recording never mentions is flagged for the user to check.
+- **Storage.** `transcription_artifacts`, one row per (recording, kind, settings), with `source_version` for "Out of
+  date" + Update, a unique key so concurrent clicks share one generation, `progress` for the latest quiz score, RLS
+  like `transcription_insights`, and `on delete cascade` from the recording. A failed update keeps the previous result.
+  Created outputs are not part of Library search.
+- **Cost.** Claude Haiku 5.5; each generation is logged with the Phase 3 usage meter (`feature: tool:<kind>`). Long
+  recordings use the same part-by-part analysis as summaries, so late sections are covered. `api/tools.js` may run up
+  to 300 s.
+- **Export** (`src/insights/export.js`): choose any of Original / Clean transcript, Summary, Notes, Insights and created
+  outputs, then PDF (jsPDF), Word (docx), Markdown or text; SRT / VTT subtitles for the transcript when it has
+  line-level timestamps (older recordings: disabled, with the reason). Files are built in the browser from data the
+  signed-in user already loaded, with clean file names; PDF and Word code loads only when used.
 
 ## My Library
 
@@ -233,7 +269,10 @@ a trigger that creates a profile for every new auth user, indexes, column privil
   `last_opened_at` (both user-writable) and `search_tsv` (generated, not writable); `folders` and
   `folder_items` (a membership can only link the user's own folder to the user's own recording);
   `transcription_insights.search_tsv` for Notes (trigger-managed); `search_library`, `library_list`,
-  `library_stats` are SECURITY INVOKER (RLS applies) and not executable by `anon`.
+  `library_stats` are SECURITY INVOKER (RLS applies) and not executable by `anon`. Notes count in search only
+  while they match the transcript's current version (`20261010000000_phase4_current_notes_only.sql`).
+- Phase 5 (`20261010010000_phase5_artifacts.sql`): `transcription_artifacts`, readable/writable only when
+  `user_id = auth.uid()` and the recording is the user's; `user_id` never writable; deleted with the recording.
 
 ### Supabase dashboard settings (one-time)
 

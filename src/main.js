@@ -1020,6 +1020,10 @@ const insights = mountInsights({
     setRecordingType: async (t) => { state.recordingType = t; if (save.id) await updateRecordingType(save.id, t); },
     duration: () => state?.duration || 0,
     autoGenerate: true, // a fresh transcription: summarize automatically once the user has turned summaries on
+    coarse: false,
+    title: () => base(),
+    createdAt: () => null,
+    toast: (m) => toast(m),
   },
 });
 

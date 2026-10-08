@@ -28,6 +28,43 @@ function structured(task, lines) {
     const half = Math.ceil(lines.length / 2);
     return { sections: [lines.slice(0, half), lines.slice(half)].filter((p) => p.length).map((p, i) => ({ heading: i ? 'Later' : 'Beginning', points: p.slice(0, 3).map((l) => ({ text: firstSentence(l.text), refs: [l.id] })) })) };
   }
+  // Phase 5 tools: deliberately include items the validators must reject (made-up evidence, a vague card,
+  // a malformed quiz question, an exam claim without exam words)
+  const L = (i) => lines[Math.min(i, lines.length - 1)] || { id: 0, text: '' };
+  const ev = (l) => firstSentence(l.text);
+  if (task === 'study_guide') {
+    return {
+      overview: `[Mock] ${ev(L(0))}`, topics: [{ title: 'Mock topic', summary: ev(L(0)), start_ref: L(0).id }],
+      concepts: [{ term: 'Mock concept', explanation: ev(L(1)), refs: [L(1).id] }],
+      definitions: [{ term: 'Mock term', definition: ev(L(1)), evidence: ev(L(1)), refs: [L(1).id] }, { term: 'Invented', definition: 'x', evidence: 'words nobody said at all', refs: [L(1).id] }],
+      examples: [], processes: [{ name: 'One step only', steps: ['a'], refs: [L(0).id] }], relationships: [],
+      emphasis: [], exam_info: [{ text: 'Not really an exam point', evidence: ev(L(0)), refs: [L(0).id] }], review: [],
+    };
+  }
+  if (task === 'flashcards') {
+    return { cards: [
+      { front: `What did the speaker say about ${words(L(0).text)[0] || 'this'}?`, back: ev(L(0)), evidence: ev(L(0)), refs: [L(0).id] },
+      { front: `What did the speaker say about ${words(L(0).text)[0] || 'this'}?`, back: ev(L(0)), evidence: ev(L(0)), refs: [L(0).id] },
+      { front: 'What topic was discussed?', back: 'Stuff', evidence: ev(L(1)), refs: [L(1).id] },
+      { front: 'A card with invented evidence?', back: 'No', evidence: 'nobody ever said this sentence', refs: [L(1).id] },
+    ] };
+  }
+  if (task === 'quiz') {
+    return { questions: [
+      { type: 'multiple_choice', question: `Which statement matches the recording?`, options: [ev(L(0)), 'Option B', 'Option C', 'Option D'], answer: ev(L(0)), accept: [], explanation: 'Said at the start.', evidence: ev(L(0)), refs: [L(0).id] },
+      { type: 'true_false', question: 'The recording has a first line?', options: ['True', 'False'], answer: 'true', accept: [], explanation: 'It does.', evidence: ev(L(0)), refs: [L(0).id] },
+      { type: 'multiple_choice', question: 'Malformed: answer not among the options?', options: ['A', 'B', 'C', 'D'], answer: 'E', accept: [], explanation: '', evidence: ev(L(0)), refs: [L(0).id] },
+      { type: 'short_answer', question: 'What is the first word of the recording?', options: [], answer: words(L(0).text)[0] || 'x', accept: [], explanation: '', evidence: ev(L(0)), refs: [L(0).id] },
+    ] };
+  }
+  if (task === 'definitions') return { definitions: [{ term: 'Mock term', definition: ev(L(1)), evidence: ev(L(1)), refs: [L(1).id] }] };
+  if (task === 'exam_points') return { explicit: [{ text: 'Claimed exam point without exam words', evidence: ev(L(0)), refs: [L(0).id] }], worth_reviewing: [] };
+  if (task === 'meeting_recap') return { overview: `[Mock] ${ev(L(0))}`, topics: [{ title: 'Mock', summary: ev(L(0)), start_ref: BOGUS }], decisions: [], action_items: [], open_questions: [], follow_ups: [], important_dates: [] };
+  if (task === 'action_plan') return { tasks: [{ task: 'Mock task', owner: null, deadline: null, evidence: ev(L(0)), refs: [L(0).id] }] };
+  if (task === 'followup_email') return { subject: 'Follow-up', body: 'Hi [name],\nAs agreed, the price is $49 and we will ship by Monday.\nThanks', facts: [{ fact: 'something', evidence: ev(L(0)), refs: [L(0).id] }] };
+  if (task === 'reply_draft') return { reply: 'Sure, I will send it first thing tomorrow.', addresses: [{ request: 'send the file', evidence: ev(L(0)), refs: [L(0).id] }] };
+  if (task === 'interview_qa') return { is_interview: true, pairs: [{ question: L(0).text, asked_by: L(0).speaker, response: ev(L(1)), answered_by: L(1).speaker, refs: [L(0).id, L(1).id] }], quotes: [{ quote: ev(L(1)), speaker: L(1).speaker, refs: [L(1).id] }, { quote: 'A made-up quote nobody said', speaker: 'Speaker 1', refs: [L(0).id] }] };
+  if (task === 'episode_notes') return { summary: `[Mock] ${ev(L(0))}`, outline: [{ title: 'Start', summary: ev(L(0)), start_ref: L(0).id }], takeaways: [{ text: ev(L(1)), refs: [L(1).id] }], quotes: [] };
   if (task === 'notes') {
     const half = Math.ceil(lines.length / 2);
     return {
