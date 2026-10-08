@@ -85,7 +85,7 @@ export function confirmDeleteRecordings(count, title) {
   return confirmDialog({
     title: count === 1 ? 'Delete this recording?' : `Delete ${count} recordings?`,
     bodyHtml: `<p>This permanently removes ${what} from your library, including:</p>
-      <ul class="dlg-list"><li>the transcript and speaker names</li><li>summaries, notes and insights</li><li>Ask questions and answers</li><li>its place in your folders</li></ul>
+      <ul class="dlg-list"><li>the transcript and speaker names</li><li>summaries, notes and insights</li><li>Ask questions and answers</li><li>${count === 1 ? 'its place in your folders' : 'their places in your folders'}</li></ul>
       <p class="dlg-dim">This can’t be undone. Your audio was never uploaded, so there is no audio to delete.</p>`,
     confirmLabel: count === 1 ? 'Delete permanently' : `Delete ${count} permanently`,
     danger: true,
