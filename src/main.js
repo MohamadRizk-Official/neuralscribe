@@ -5,13 +5,14 @@ import { saveTranscript, updateTranscriptText, updateRecordingType, stashPending
 import { toStoredSegments, RECORDING_TYPES } from './lib/segments.js';
 import { cleanText } from './lib/clean.js';
 import { mountInsights } from './insights/insights.js';
+import { sparkPulse } from './lib/brand.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
   dropPanel: $('dropPanel'), dropzone: $('dropzone'), fileInput: $('fileInput'),
   modelSelect: $('modelSelect'), speakersSelect: $('speakersSelect'),
   progressPanel: $('progressPanel'), fileName: $('fileName'), fileSub: $('fileSub'), cancelBtn: $('cancelBtn'),
-  wave: $('wave'), waveSweep: $('waveSweep'), steps: $('steps'), stageLabel: $('stageLabel'), statusLine: $('statusLine'),
+  wave: $('wave'), waveSweep: $('waveSweep'), waveWrap: $('waveWrap'), sweepHead: $('sweepHead'), steps: $('steps'), stageLabel: $('stageLabel'), statusLine: $('statusLine'),
   pctNum: $('pctNum'), etaText: $('etaText'), pctBar: $('pctBar'), downloads: $('downloads'),
   resultsPanel: $('resultsPanel'), resTitle: $('resTitle'), resMeta: $('resMeta'),
   searchInput: $('searchInput'), searchCount: $('searchCount'),
@@ -256,6 +257,7 @@ function renderPct() {
   els.pctNum.innerHTML = `${Math.floor(overall)}<small>%</small>`;
   els.pctBar.style.width = overall + '%';
   els.waveSweep.style.width = overall + '%';
+  els.sweepHead.style.left = overall + '%'; // the bolt rides the edge of what's been read
   if (run.stage === 'run' || run.stage === 'speakers' || run.stage === 'review') {
     const elapsed = (performance.now() - run.stageStart) / 1000;
     const p = run.stagePct / 100;
@@ -336,6 +338,8 @@ function onDownload(p) {
 
 async function start(file) {
   currentFile = file;
+  els.waveWrap.classList.remove('done');
+  sparkPulse();
   downloads.clear();
   els.downloads.innerHTML = '';
   els.statusLine.textContent = '';
@@ -428,11 +432,13 @@ function onComplete({ lines, language, ms, device, stats }) {
 
   els.resTitle.textContent = currentFile.name.replace(/\.[^.]+$/, '');
   els.resTitle.title = currentFile.name;
+  els.waveWrap.classList.add('done');
+  sparkPulse();
   setTimeout(() => {
     show(els.resultsPanel);
     renderAll();
     autoSave(); // in addition to showing the result; a failure never touches what's on screen
-  }, 400);
+  }, 900);
 }
 
 function renderAll() {
@@ -1176,4 +1182,41 @@ function toast(msg) {
   toastEl.classList.add('show');
   clearTimeout(toastEl._t);
   toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 1600);
+}
+
+// ---------- home: brand motion, "Hear it. Understand it. Use it." demos, cursor glow ----------
+setTimeout(() => sparkPulse(), 700); // one pulse when the page opens
+
+// small product demos: tabs (Summary / Notes / Ask) and tool chips (Quiz / Study Guide / ...)
+function demoSwitch(buttons, panel, attr, pressedAttr) {
+  buttons.forEach((b) => b.addEventListener('click', () => {
+    buttons.forEach((x) => x.setAttribute(pressedAttr, String(x === b)));
+    panel.querySelectorAll('[data-for]').forEach((d) => { d.hidden = d.dataset.for !== b.dataset[attr]; });
+  }));
+}
+{
+  const u = document.querySelector('[data-hear-panel="understand"]');
+  const c = document.querySelector('[data-hear-panel="create"]');
+  if (u) demoSwitch([...document.querySelectorAll('[data-hear]')], u, 'hear', 'aria-selected');
+  if (c) demoSwitch([...document.querySelectorAll('[data-make]')], c, 'make', 'aria-pressed');
+}
+
+// A very subtle background glow that drifts toward the cursor: desktop pointers only, never with
+// "reduce motion", and at most a few percent of the page.
+{
+  const glow = document.getElementById('bgCursor');
+  const fine = matchMedia('(hover: hover) and (pointer: fine)');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)');
+  let raf = 0, x = 0, y = 0;
+  if (glow) window.addEventListener('pointermove', (e) => {
+    if (!fine.matches || calm.matches || e.pointerType !== 'mouse') return;
+    x = (e.clientX / innerWidth - 0.5) * 6;   // ±3%
+    y = (e.clientY / innerHeight - 0.5) * 4;  // ±2%
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      glow.style.setProperty('--cx', `${x.toFixed(2)}%`);
+      glow.style.setProperty('--cy', `${y.toFixed(2)}%`);
+    });
+  }, { passive: true });
 }
