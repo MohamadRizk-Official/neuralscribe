@@ -15,18 +15,18 @@ export const TOOL_SETTINGS = {
   study_guide: {
     focus: { label: 'Focus', def: 'balanced', options: { balanced: 'Balanced', exam: 'Exam focused', concepts: 'Key concepts', detailed: 'Detailed' } },
   },
-  reply_draft: {
-    intent: { label: 'What should the reply do?', def: 'acknowledge', options: { acknowledge: 'Acknowledge', confirm: 'Confirm', question: 'Ask a question', follow_up: 'Follow up', decline: 'Decline', custom: 'Custom' } },
-  },
-  followup_email: {
-    goal: { label: 'What should this email accomplish?', def: 'recap', options: { recap: 'Recap & next steps', confirm: 'Confirm decisions', request: 'Ask for updates', custom: 'Custom' } },
-  },
 };
-// tools that also take free-text instructions from the user
+// Drafts: the user writes what the draft should be about (required); the recording supplies the facts.
+// Earlier versions offered preset intents ("Confirm", "Decline"…); those were too vague to act on.
+// Stored drafts may still carry an old `intent` / `goal` setting; it is ignored.
 export const TAKES_INSTRUCTIONS = new Set(['reply_draft', 'followup_email']);
+export const INSTRUCTIONS_MISSING = {
+  reply_draft: 'Tell SparkScribe what you want the reply to be about.',
+  followup_email: 'Tell SparkScribe what you want the email to be about.',
+};
 export const MAX_INSTRUCTIONS = 500;
 
-const KEY_NAME = { size: 'size', difficulty: 'diff', types: 'types', focus: 'focus', intent: 'intent', goal: 'goal' };
+const KEY_NAME = { size: 'size', difficulty: 'diff', types: 'types', focus: 'focus' };
 
 // FNV-1a, 32 bit: a short stable fingerprint of the user's instructions for the cache key
 function fingerprint(text) {

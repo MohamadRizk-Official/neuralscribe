@@ -11,7 +11,7 @@ import { cleanText } from '../lib/clean.js';
 import { supabase } from '../lib/supabase.js';
 import { normalizeToolSettings, describeSettings } from '../lib/tool-settings.js';
 import { makeDialog } from '../library/dialogs.js';
-import { fmtClock, splitCitations, RECORDING_TYPES, RECORDING_TYPE_LABEL, normalizeRecordingType, isNotFound } from '../lib/segments.js';
+import { fmtClock, splitCitations, RECORDING_TYPES, RECORDING_TYPE_LABEL, normalizeRecordingType, isNotFound, refersToPlayback } from '../lib/segments.js';
 
 const CONSENT_KEY = 'sparkscribe.aiConsent';
 const POLL_MS = 3000;
@@ -90,13 +90,14 @@ const TYPE_DESC = {
   voice_message: 'Short message: key info, tasks, reply draft',
 };
 
+// Starter questions per recording type: things people actually want to know about that kind of recording.
 const STARTERS = {
-  general: ['Summarize the main discussion', 'What decisions were made?', 'What action items were assigned?', 'What deadlines were mentioned?'],
-  meeting: ['What decisions were made?', 'What action items were assigned?', 'What deadlines were mentioned?', 'What questions are still open?'],
-  lecture: ['What should I study?', 'What were the main concepts?', 'Did the lecturer mention the exam?'],
-  interview: ['What were the main questions asked?', 'What are the key takeaways?', 'Summarize the answers'],
-  podcast: ['What are the main topics?', 'What are the key takeaways?'],
-  voice_message: ['What does this person need from me?', 'Are there dates or times I need to remember?', 'Summarize this in one sentence'],
+  general: ['What was this about?', 'What needs to happen next?', 'Were any dates or deadlines mentioned?', 'What still needs clarification?'],
+  meeting: ['What decisions were made?', 'What are my action items?', 'What is still unresolved?', 'Were there deadlines?'],
+  lecture: ['What were the main concepts?', 'What did the professor emphasize?', 'Was anything mentioned about the exam?', 'What should I review?'],
+  interview: ['What were the main questions asked?', 'What are the key takeaways?', 'What stood out in the answers?'],
+  podcast: ['What are the main topics?', 'What are the key takeaways?', 'Were any recommendations made?'],
+  voice_message: ['What do they need from me?', 'What should I follow up on?', 'Were any dates or deadlines mentioned?', 'What still needs clarification?'],
 };
 
 /**
@@ -558,7 +559,9 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
 
   // ---------- Ask tab ----------
   function answerHtml(q, byId) {
-    if (!q.found || isNotFound(q.answer)) return `<div class="ask-a nf"><p>${esc(q.answer || "I couldn't find that in this recording.")}</p></div>`;
+    // older answers may be the generic "not found" sentence; newer ones say what wasn't mentioned
+    if (isNotFound(q.answer) || !q.answer) return `<div class="ask-a nf"><p>${esc(q.answer || "I couldn't find that in this recording.")}</p></div>`;
+    if (!q.found) return `<div class="ask-a">${rich(q.answer, byId)}</div>`;
     const unsupported = !(q.refs || []).length;
     return `<div class="ask-a">${rich(q.answer, byId)}${unsupported ? '<p class="ask-warn">No supporting passage was cited. Check the transcript before relying on this.</p>' : ''}${q.sourceVersion != null && st.contentVersion != null && q.sourceVersion < st.contentVersion ? '<p class="ask-warn">Answered before the transcript was last changed.</p>' : ''}</div>`;
   }
@@ -568,7 +571,9 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     const byId = segById();
     const t = type();
     const starters = [...STARTERS[t]];
-    if (ctx.playbackTime() != null) starters.push('Explain this part more simply');
+    // only once the user is somewhere in the recording, and saying where, so it's clear which part is meant
+    const pos = ctx.playbackTime();
+    if (pos > 0) starters.push(`Explain the part at ${fmtClock(pos)} more simply`);
     const pending = st.ask;
     const thread = st.questions.map((q) => `<div class="ask-turn"><div class="ask-q">${esc(q.question)}</div>${answerHtml(q, byId)}</div>`).join('');
     const live = pending ? `<div class="ask-turn"><div class="ask-q">${esc(pending.question)}</div>${
@@ -576,7 +581,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
       : pending.text ? `<div class="ask-a streaming">${rich(pending.text, byId)}</div>`
       : `<div class="ask-a">${loading(pending.status === 'searching' ? 'Finding the relevant parts of the recording' : 'Writing the answer')}</div>`}</div>` : '';
     p.innerHTML = `<p class="tab-intro">Ask questions about anything said here.</p><div class="panel ins-card ask-card">
-      <div class="ask-thread" aria-live="polite">${thread || live ? thread + live : `<div class="ask-empty"><h3>Ask about this recording</h3><p>Answers come only from what was said, with the moments they're based on.</p></div>`}</div>
+      <div class="ask-thread" aria-live="polite">${thread || live ? thread + live : `<div class="ask-empty"><h3>Ask about this recording</h3><p>Answers are based on what was said, with the moments they rely on. When an answer is an interpretation, it says so.</p></div>`}</div>
       <div class="ask-starters">${starters.map((s) => `<button type="button" class="starter" data-q="${esc(s)}"${pending && !pending.error ? ' disabled' : ''}>${esc(s)}</button>`).join('')}</div>
       <form class="ask-form" autocomplete="off">
         <textarea class="ask-input" rows="1" maxlength="500" placeholder="Ask anything about this recording" aria-label="Your question" enterkeyhint="send"${pending && !pending.error ? ' disabled' : ''}></textarea>
@@ -606,7 +611,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     st.ask = { question, text: '', status: null, error: null };
     render();
     try {
-      const at = /\b(this|here|now|just)\b/i.test(question) ? ctx.playbackTime() : null;
+      const at = refersToPlayback(question) ? ctx.playbackTime() : null;
       const r = await askQuestion(ctx.getId(), question, at, {
         onStatus: (s) => { st.ask.status = s; if (!st.ask.text) render(); },
         onDelta: (t) => { st.ask.text += t; scheduleRender(); },

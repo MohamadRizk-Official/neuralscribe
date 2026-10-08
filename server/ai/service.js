@@ -21,8 +21,9 @@ import { createMeter } from './usage.js';
 import { ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, NOTES_SCHEMA, notesInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
 import { groundStructured, groundChapters, groundAnswer } from './grounding.js';
 import { TOOLS, ARTIFACT_KINDS, normalizeSettings, cardCount, questionCount, examBacked } from './tools.js';
+import { INSTRUCTIONS_MISSING } from '../../src/lib/tool-settings.js';
 import { selectContext, needsRetrieval, formatExcerpts } from './retrieve.js';
-import { segmentsFromRow, modelLine, estimateTokens, normalizeRecordingType, RECORDING_TYPES } from '../../src/lib/segments.js';
+import { segmentsFromRow, modelLine, estimateTokens, normalizeRecordingType, RECORDING_TYPES, isNotFound, refersToPlayback, isFollowUp } from '../../src/lib/segments.js';
 
 const PART_TOKENS = 80_000;
 const GENERATING_TIMEOUT_MS = 120_000;
@@ -184,6 +185,8 @@ export async function generateArtifact(db, { transcriptionId, kind, settings, fo
   if (!ARTIFACT_KINDS.includes(kind)) throw new AIError('Unknown tool.', { status: 400, code: 'bad_request' });
   const tool = TOOLS[kind];
   const { settings: normalized, key } = normalizeSettings(kind, settings);
+  // a draft is about what the user asked for; without a request there is nothing to write
+  if (INSTRUCTIONS_MISSING[kind] && !normalized.instructions) throw new AIError(INSTRUCTIONS_MISSING[kind], { status: 400, code: 'bad_request' });
   const meter = createMeter({ feature: key ? `tool:${kind}:${key}` : `tool:${kind}`, transcriptionId, userId });
   const { row, segments } = await loadTranscript(db, transcriptionId);
   const version = row.content_version;
@@ -260,7 +263,8 @@ export async function generate(db, { transcriptionId, kind, recordingType, force
 const normQuestion = (q) => q.toLowerCase().replace(/\s+/g, ' ').replace(/[?.!\s]+$/, '').trim();
 const INTENTS = [
   [/\b(decid|decision|agree|final|settled|go with)/i, ['decisions']],
-  [/\b(action|task|to.?do|assign|responsib|follow.?up|need(s)? to do|next step)/i, ['action_items', 'requested_actions', 'follow_ups']],
+  [/\b(action|task|to.?do|assign|responsib|follow.?up|need(s)? to do|next step|want|need|expect|supposed to|ask(ing)? (me|us|for))/i, ['action_items', 'requested_actions', 'follow_ups']],
+  [/\b(clarif|unclear|confirm|missing|gap)/i, ['open_questions', 'follow_ups', 'concerns']],
   [/\b(deadline|due|date|when|schedule|appointment|by (mon|tues|wednes|thurs|fri|satur|sun)day)/i, ['important_dates', 'dates_times', 'action_items']],
   [/\b(question|unresolved|open issue)/i, ['open_questions', 'questions']],
   [/\b(priorit|goal|focus)/i, ['priorities']],
@@ -289,13 +293,18 @@ export async function askTranscript(db, { transcriptionId, question, at = null, 
   if (!question) throw new AIError('Type a question first.', { status: 400, code: 'bad_request' });
   const { row, segments } = await loadTranscript(db, transcriptionId);
   const version = row.content_version;
-  const deictic = at != null && /\b(this|here|now|just)\b/i.test(question);
+  const deictic = at != null && refersToPlayback(question);
   const meter = createMeter({ feature: 'ask', transcriptionId, userId });
+  // the last few turns, so follow-ups like "Why?" are understood (old generic "not found" replies left out)
+  const history = (await db.listQuestions(transcriptionId)).filter((q) => q.answer && !isNotFound(q.answer)).slice(-3);
+  const followUp = history.length > 0 && isFollowUp(question);
 
-  // the same question about the same version of the transcript: answer from storage, no model call
-  if (!deictic) {
+  // the same question about the same version of the transcript: answer from storage, no model call.
+  // Not for follow-ups ("Why?" depends on what came before), and not for the generic "not found" reply
+  // older versions gave: asking again gets a real answer.
+  if (!deictic && !followUp) {
     const prev = await db.findAnswer(transcriptionId, normQuestion(question), version, normQuestion);
-    if (prev) {
+    if (prev && !isNotFound(prev.answer)) {
       emit({ type: 'cached' });
       meter.finish({ cached: true });
       return { id: prev.id, question: prev.question, answer: prev.answer, refs: prev.refs, found: prev.found, cached: true };
@@ -307,15 +316,17 @@ export async function askTranscript(db, { transcriptionId, question, at = null, 
   const current = insights.filter((i) => i.source_version === version);
   let keywords = [];
   let usageIn = 0, usageOut = 0;
+  // a follow-up is searched together with the question it follows ("What about shipping?" after "What does he want?")
+  const searchText = followUp ? `${history.at(-1).question} ${question}` : question;
   if (needsRetrieval(segments)) {
     emit({ type: 'status', status: 'searching' });
     try {
-      const r = await meter.call('ask:keywords', () => ai.complete({ task: 'expand', ...taskConfig('expand'), system: 'You help search transcripts.', schema: EXPAND_SCHEMA, messages: [{ role: 'user', content: expandInstructions(question) }] }));
+      const r = await meter.call('ask:keywords', () => ai.complete({ task: 'expand', ...taskConfig('expand'), system: 'You help search transcripts.', schema: EXPAND_SCHEMA, messages: [{ role: 'user', content: expandInstructions(searchText) }] }));
       keywords = (r.json?.keywords || []).slice(0, 20).map(String);
       usageIn += r.usage.input; usageOut += r.usage.output;
     } catch { /* retrieval still works on the question's own words */ }
   }
-  const ctx = selectContext(segments, { question, keywords, at: deictic ? Number(at) : null, priorityIds: intentRefs(question, current) });
+  const ctx = selectContext(segments, { question: searchText, keywords, at: deictic ? Number(at) : null, priorityIds: intentRefs(searchText, current) });
 
   const overview = current.find((i) => i.kind === 'overview' && i.status === 'ready')?.content;
   const outline = ctx.mode === 'retrieval' && overview
@@ -324,7 +335,6 @@ export async function askTranscript(db, { transcriptionId, question, at = null, 
   const scope = ctx.mode === 'full' ? 'The complete transcript' : 'Excerpts of the transcript selected as relevant to the question ("…" marks skipped parts)';
   const position = deictic ? `\nThe user is currently at ${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, '0')} in the recording; "this part" refers to the lines around that time.` : '';
 
-  const history = (await db.listQuestions(transcriptionId)).filter((q) => q.found).slice(-2);
   const messages = [];
   for (const h of history) messages.push({ role: 'user', content: `<question>\n${h.question}\n</question>` }, { role: 'assistant', content: h.answer });
   messages.push({

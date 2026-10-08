@@ -121,7 +121,7 @@ export function mockProvider() {
         const s = words(l.text).filter((w) => qw.has(w)).length;
         if (s > bestScore) { best = l; bestScore = s; }
       }
-      const answer = bestScore >= 2 ? `[Mock] The closest passage says: "${firstSentence(best.text)}" [${best.id}][${BOGUS}]` : "I couldn't find that in this recording.";
+      const answer = bestScore >= 2 ? `[Mock] The closest passage says: "${firstSentence(best.text)}" [${best.id}][${BOGUS}]` : `[Mock] The recording doesn't mention that (${question.replace(/\?$/, '').slice(0, 60)}).`;
       for (const piece of answer.match(/\S+\s*/g)) { onDelta(piece); await new Promise((r) => setTimeout(r, 25)); }
       return { text: answer, model: 'mock', usage: { input: Math.ceil(prompt.length / 3.2), output: 40 }, truncated: false };
     },

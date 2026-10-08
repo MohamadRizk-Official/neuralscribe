@@ -93,5 +93,17 @@ export function splitCitations(text, isValid) {
   return parts.map((p) => (p.text != null ? { text: p.text.replace(/\s+([.,;:!?])/g, '$1') } : p));
 }
 
+// The generic "not found" sentence Ask used before Phase 5.6 (old answers still contain it).
 export const NOT_FOUND = "I couldn't find that in this recording.";
 export const isNotFound = (text) => /^\s*I couldn[’']t find that in this recording/i.test(String(text));
+// An answer that only says the recording doesn't contain something ("No deadline was mentioned."): it
+// rightly cites nothing, so it isn't flagged as unsupported.
+const NEGATIVE_RE = /(?:\b(?:not|no|never|nothing|none|neither)|n[’']t)\b[^.!?]*\b(?:mention|said|say|says|stated?|discuss|cover|given|specif|include|come up|came up|talk|enough|tell|determine|address)/i;
+export const isNegativeAnswer = (text) => isNotFound(text) || NEGATIVE_RE.test(String(text));
+// A question about the part currently playing ("explain this part", "what did he just say?")
+export const refersToPlayback = (q) => /\b(?:this|that) (?:part|section|bit|moment|segment|passage)\b|\bthe part at \d|\bright (?:here|now)\b|\bjust (?:said|say|now)\b/i.test(String(q));
+// A short follow-up that only makes sense after the previous question ("Why?", "What about shipping?")
+export const isFollowUp = (q) => {
+  const t = String(q).trim();
+  return t.split(/\s+/).length <= 3 || /^(?:why|how so|and|but|so|then|also|really|what about|how about|what else|anything else|which one|what do you mean|is that|was that|does that|did that)\b/i.test(t);
+};
