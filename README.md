@@ -168,8 +168,9 @@ Nothing here uses AI; it's all Postgres.
 - **Paging:** 24 recordings per page from `library_list()`, loaded as you scroll (plus a "Show more" button).
 - **Search:** `search_library()` — Postgres full-text search (English stemming: "pricing" finds "price"; quotes
   for exact phrases; `or`, `-word`). Matches titles, transcript text and real speaker names (generic
-  "Speaker 1" labels are not indexed), plus generated Notes, which are labelled **Notes** and rank below the
-  transcript. Ranking: title match first, then transcript relevance (`ts_rank_cd`), then Notes. Each result
+  "Speaker 1" labels are not indexed), plus generated Notes, which are labelled **Notes**, rank below the
+  transcript, and only count while they match the current transcript version (out-of-date Notes stay stored but
+  are not searched until regenerated). Ranking: title match first, then transcript relevance (`ts_rank_cd`), then Notes. Each result
   shows up to 3 matching lines with their timestamps; clicking one opens `/transcript?id=…&t=…&line=…`, which
   jumps to and highlights that line (or starts Play along there). Older saves without line timestamps link to
   the start of the matching paragraph, marked ¶. A recording that has all the words but never on one line shows
