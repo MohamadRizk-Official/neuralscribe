@@ -27,11 +27,12 @@
       <div class="bg-glow bg-glow-b"></div>
       <div class="bg-glow bg-glow-c"></div>
       <div class="bg-noise"></div>
+      <div class="bg-cursor" id="bgCursor"></div>
     </div>
 
     <header class="topbar">
       <a class="brand" href="/" aria-label="SparkScribe home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <svg class="brand-mark spark-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><defs><linearGradient id="sparkGrad" gradientUnits="userSpaceOnUse" x1="2" y1="0" x2="38" y2="0"><stop offset="0" stop-color="#22d3ee"/><stop offset=".55" stop-color="#a78bfa"/><stop offset="1" stop-color="#f472b6"/></linearGradient></defs><rect class="sb sb-o" x="2" y="14" width="4" height="12" rx="2"/><rect class="sb sb-i" x="9" y="9" width="4" height="22" rx="2"/><path class="sbolt" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><path class="sbolt-hi" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><rect class="sb sb-i" x="27" y="10" width="4" height="20" rx="2"/><rect class="sb sb-o" x="34" y="15" width="4" height="10" rx="2"/></svg>
         <span class="brand-name">Spark<b>Scribe</b></span>
       </a>
       <div class="topbar-right">
@@ -43,16 +44,15 @@
 
     <main class="app">
       <!-- ===== HOME / DROP ===== -->
-      <section class="hero" id="dropPanel">
+      <section class="landing" id="dropPanel">
+      <div class="hero">
         <div class="hero-text">
-          <div class="eyebrow mono"><span class="pulse"></span>speech intelligence · runs in your browser</div>
           <h1>Who said <span class="grad">what</span>.</h1>
-          <p>Drop a voice note, call recording, MP3 or MP4. Get a clean transcript split by speaker, free and private, transcribed entirely on your own device.</p>
+          <p>Drop a recording. Get a speaker-aware transcript, a summary and tools to use it.</p>
           <ul class="pills">
-            <li><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>Private by design</li>
+            <li><svg class="pill-safe" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>Audio stays on your device</li>
             <li><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.4-.3 4.4 1 5 3.6"/></svg>Speaker detection</li>
-            <li><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h13"/></svg>Optimized for English</li>
-            <li><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17l9-10"/></svg>Free, no account</li>
+            <li><svg class="pill-ok" viewBox="0 0 24 24"><path d="M5 12.5 10 17l9-10"/></svg>Free, no account</li>
           </ul>
         </div>
 
@@ -62,13 +62,11 @@
             <div class="dz-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
             <div class="dz-inner">
               <div class="dz-icon">
-                <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
-                  <path d="M24 31V13m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M11 29v5a4 4 0 0 0 4 4h18a4 4 0 0 0 4-4v-5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
-                </svg>
+                <svg class="spark-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><rect class="sb sb-o" x="2" y="14" width="4" height="12" rx="2"/><rect class="sb sb-i" x="9" y="9" width="4" height="22" rx="2"/><path class="sbolt" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><path class="sbolt-hi" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><rect class="sb sb-i" x="27" y="10" width="4" height="20" rx="2"/><rect class="sb sb-o" x="34" y="15" width="4" height="10" rx="2"/></svg>
+                <span class="dz-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 19V6m0 0-5 5m5-5 5 5"/></svg></span>
               </div>
-              <div class="dz-title">Drop a file or <u>browse</u></div>
-              <div class="dz-sub mono">m4a · mp3 · mp4 · wav · ogg · webm · mov · up to hours long</div>
+              <div class="dz-title"><span class="dz-rest">Drop a file or <u>browse</u></span><span class="dz-over">Drop to transcribe</span></div>
+              <div class="dz-sub mono">English · m4a · mp3 · mp4 · wav · ogg · webm · mov · up to hours long</div>
             </div>
           </label>
 
@@ -148,6 +146,49 @@
             <p class="help">Speaker labels are automatic and can be wrong. If you know how many people are talking, choosing it here makes them more accurate, and you can rename or fix speakers after transcription.</p>
           </details>
         </div>
+      </div>
+
+        <section class="hear" aria-labelledby="hearTitle">
+          <h2 id="hearTitle">Hear it. <span class="hear-mid">Understand it.</span> <span class="grad">Use it.</span></h2>
+          <div class="hear-grid">
+            <article class="hear-card">
+              <header><span class="hear-ic cyan" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h2m3-5v10m3-13v16m3-11v6m3-3h2"/></svg></span><div><h3>Transcribe</h3><p>Speaker-aware, with timestamps</p></div></header>
+              <div class="hear-demo hear-lines">
+                <div><span class="mono t1">0:04</span><span><b class="s1">Speaker 1</b> Let’s move the beta to Friday.</span></div>
+                <div class="hl"><span class="mono t2">0:09</span><span><b class="s2">Speaker 2</b> I’ll update the invite list today.</span></div>
+                <div><span class="mono t1">0:15</span><span><b class="s1">Speaker 1</b> Great, send it before lunch.</span></div>
+              </div>
+            </article>
+            <article class="hear-card">
+              <header><span class="hear-ic violet" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></span><div><h3>Understand</h3><p>Summary, Notes and Ask</p></div></header>
+              <div class="hear-tabs" role="tablist" aria-label="Understand example">
+                <button type="button" role="tab" aria-selected="false" data-hear="summary">Summary</button>
+                <button type="button" role="tab" aria-selected="false" data-hear="notes">Notes</button>
+                <button type="button" role="tab" aria-selected="true" data-hear="ask">Ask</button>
+              </div>
+              <div class="hear-demo" data-hear-panel="understand">
+                <div data-for="summary" hidden><p>The team moved the beta launch to Friday. Speaker 2 will update the invite list today. <span class="mono t1">0:04</span></p></div>
+                <div data-for="notes" hidden><p class="note"><span class="mono tag ok">Decision</span>Beta moves to Friday</p><p class="note"><span class="mono tag act">Action</span>Update invite list · Speaker 2 · today</p></div>
+                <div data-for="ask"><p class="bubble q">What did they decide?</p><p class="bubble a">They moved the beta to Friday. <span class="mono t1">0:04</span></p></div>
+              </div>
+            </article>
+            <article class="hear-card">
+              <header><span class="hear-ic pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span><div><h3>Create</h3><p>Study Guides, Quizzes, Recaps, Drafts</p></div></header>
+              <div class="hear-chips" role="group" aria-label="Create example">
+                <button type="button" aria-pressed="true" data-make="quiz">Quiz</button>
+                <button type="button" aria-pressed="false" data-make="guide">Study Guide</button>
+                <button type="button" aria-pressed="false" data-make="recap">Meeting Recap</button>
+                <button type="button" aria-pressed="false" data-make="draft">Draft</button>
+              </div>
+              <div class="hear-demo" data-hear-panel="create">
+                <div data-for="quiz"><p class="q">When is the beta launching?</p><p class="opt right">Friday <span aria-hidden="true">✓</span></p><p class="opt">Next Monday</p></div>
+                <div data-for="guide" hidden><p><b>Study Guide · Beta launch</b></p><p class="dim">1. Timeline: the beta moves to Friday</p><p class="dim">2. Owners: invite list, Speaker 2</p></div>
+                <div data-for="recap" hidden><p><b>Meeting Recap</b></p><p class="dim">1 decision · 1 action item · 1 deadline</p><p class="dim">Next: send the invite list before lunch</p></div>
+                <div data-for="draft" hidden><p class="draft">“Hi team, quick recap: the beta moves to Friday, and the updated invite list goes out today.”</p></div>
+              </div>
+            </article>
+          </div>
+        </section>
       </section>
 
       <!-- ===== PROCESSING ===== -->
@@ -163,9 +204,11 @@
           <button class="btn btn-ghost" id="cancelBtn" type="button">Cancel</button>
         </div>
 
-        <div class="wave-wrap">
+        <div class="wave-wrap" id="waveWrap">
           <canvas id="wave" class="wave" height="96"></canvas>
           <div class="wave-sweep" id="waveSweep"></div>
+          <span class="sweep-head" id="sweepHead" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/></svg></span>
+          <span class="wave-done" aria-hidden="true"><span><svg viewBox="0 0 40 40"><path d="M11 21 17.5 27.5 29.5 13.5"/></svg></span></span>
         </div>
 
         <ol class="stepper" id="steps">
@@ -276,7 +319,7 @@
     <div class="menu hidden" id="menu" role="menu"></div>
 
     <footer class="foot mono">
-      Whisper + pyannote + WeSpeaker via Transformers.js · models download once, then cached · your audio never leaves this device · when you're signed in, finished transcripts are saved to your private account · Summary, Notes, Ask and Insights send transcript text (never audio) to our AI provider, Anthropic, only when you use them
+      Audio stays on your device · transcripts you save are private to your account · AI features send transcript text (never audio) to our AI provider, Anthropic, only when you use them
     </footer>
 
     <script type="module" src="/src/main.js"></script>

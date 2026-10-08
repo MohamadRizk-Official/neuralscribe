@@ -1213,3 +1213,119 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
   .seg-toggle button { flex: 1; padding: 9px 8px; }
   .tab-intro { margin: -6px 2px 0; font-size: 13px; }
 }
+
+/* ===== Brand mark: "Audio Spark" (waveform with a lightning-bolt center bar) ===== */
+.spark-mark { width: 28px; height: 28px; overflow: visible; flex: none; }
+.spark-mark .sb, .spark-mark .sbolt { fill: url(#sparkGrad); }
+.spark-mark .sb { transform-box: fill-box; transform-origin: center; }
+.spark-mark .sbolt-hi { fill: #fff; opacity: 0; }
+/* header: a quiet bolt flash every 10 s */
+.brand .spark-mark { animation: spark-idle-glow 10s ease-out 2.5s infinite; }
+.brand .spark-mark .sbolt-hi { animation: spark-idle 10s ease-out 2.5s infinite; }
+@keyframes spark-idle { 0% { opacity: 0; } 2% { opacity: .92; } 4.5% { opacity: .92; } 7.5%, 100% { opacity: 0; } }
+@keyframes spark-idle-glow { 0% { filter: none; } 2%, 4.5% { filter: drop-shadow(0 0 5px rgba(167,139,250,.75)); } 8%, 100% { filter: none; } }
+/* interaction (hover, drag-over, file picked, transcript ready): bolt flash, then a pulse outward, once */
+.brand:hover .spark-mark, .dropzone:hover .spark-mark, .dropzone.over .spark-mark, .spark-mark.pulse { animation: spark-glow 1.2s ease-out 1; }
+.brand:hover .spark-mark .sbolt-hi, .dropzone:hover .spark-mark .sbolt-hi, .dropzone.over .spark-mark .sbolt-hi, .spark-mark.pulse .sbolt-hi { animation: spark-flash 1.2s ease-out 1; }
+.brand:hover .spark-mark .sb-i, .dropzone:hover .spark-mark .sb-i, .dropzone.over .spark-mark .sb-i, .spark-mark.pulse .sb-i { animation: spark-inner 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+.brand:hover .spark-mark .sb-o, .dropzone:hover .spark-mark .sb-o, .dropzone.over .spark-mark .sb-o, .spark-mark.pulse .sb-o { animation: spark-outer 1.2s cubic-bezier(.2,.8,.2,1) 1; }
+@keyframes spark-flash { 0% { opacity: 0; } 10% { opacity: .95; } 27% { opacity: .95; } 46%, 100% { opacity: 0; } }
+@keyframes spark-inner { 0%, 14% { transform: scaleY(1); } 32% { transform: scaleY(1.38); } 62%, 100% { transform: scaleY(1); } }
+@keyframes spark-outer { 0%, 26% { transform: scaleY(1); } 46% { transform: scaleY(1.5); } 78%, 100% { transform: scaleY(1); } }
+@keyframes spark-glow { 0% { filter: none; } 10%, 27% { filter: drop-shadow(0 0 6px rgba(167,139,250,.75)); } 50%, 100% { filter: none; } }
+
+/* upload area */
+.dz-icon { position: relative; transition: transform .2s ease, border-color .2s ease; }
+.dz-icon .spark-mark { width: 40px; height: 40px; }
+.dropzone:hover .dz-icon, .dropzone.over .dz-icon { transform: translateY(-3px); border-color: rgba(34,211,238,.5); }
+.dz-badge { position: absolute; right: -6px; bottom: -6px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--panel-solid); border: 1px solid rgba(34,211,238,.35); }
+.dz-icon .dz-badge svg { width: 12px; height: 12px; fill: none; stroke: var(--cyan); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.dz-over { display: none; }
+.dropzone.over { border-style: solid; box-shadow: 0 0 0 4px rgba(34,211,238,.08); }
+.dropzone.over .dz-rest { display: none; }
+.dropzone.over .dz-over { display: inline; }
+.pills svg.pill-safe { color: var(--lime); }
+.pills svg.pill-ok { color: var(--cyan); }
+
+/* selected transcription mode: a gentle pulse */
+.mode-card:has(input:checked) { animation: mode-glow 2.8s ease-in-out infinite; }
+@keyframes mode-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(34,211,238,.18), 0 10px 30px -12px rgba(34,211,238,.35); }
+  50% { box-shadow: 0 0 0 3px rgba(34,211,238,.14), 0 10px 30px -12px rgba(34,211,238,.45); }
+}
+
+/* processing: the bolt is the read-head; completion turns the waveform into a check */
+.sweep-head { position: absolute; top: 4px; left: 0; width: 24px; height: 24px; margin-left: -12px; transition: left .4s ease, opacity .3s; filter: drop-shadow(0 0 6px rgba(255,255,255,.55)); animation: head-pulse 2.6s ease-in-out infinite; pointer-events: none; }
+.sweep-head svg { width: 100%; height: 100%; fill: #fff; }
+@keyframes head-pulse { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+.wave, .wave-sweep { transition: opacity .35s ease, width .4s ease; }
+.wave-done { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transform: scale(.7); transition: opacity .35s ease, transform .45s cubic-bezier(.2,.8,.2,1); pointer-events: none; }
+.wave-done > span { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: rgba(163,230,53,.08); border: 1px solid rgba(163,230,53,.35); }
+.wave-done svg { width: 40px; height: 40px; fill: none; stroke: url(#sparkGrad); stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 30; stroke-dashoffset: 30; transition: stroke-dashoffset .5s ease .15s; }
+.wave-wrap.done .wave, .wave-wrap.done .wave-sweep { opacity: .12; }
+.wave-wrap.done .sweep-head { opacity: 0; animation: none; }
+.wave-wrap.done .wave-done { opacity: 1; transform: none; }
+.wave-wrap.done .wave-done svg { stroke-dashoffset: 0; }
+
+/* home: Hear it. Understand it. Use it. */
+.landing { display: grid; gap: clamp(28px, 5vw, 56px); }
+.hear { display: grid; gap: 20px; padding-bottom: 12px; }
+.hear h2 { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.02em; }
+.hear-mid { color: var(--muted); }
+.hear-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.hear-card { display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel); transition: transform .25s cubic-bezier(.2,.8,.2,1), border-color .25s, box-shadow .25s; }
+.hear-card:hover { transform: translateY(-3px); border-color: rgba(167,139,250,.35); box-shadow: 0 18px 50px -20px rgba(124,92,255,.45); }
+.hear-card header { display: flex; align-items: center; gap: 12px; }
+.hear-card h3 { margin: 0; font-size: 17px; }
+.hear-card header p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.hear-ic { width: 38px; height: 38px; flex: none; border-radius: 11px; display: grid; place-items: center; border: 1px solid; }
+.hear-ic svg { width: 18px; height: 18px; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hear-ic.cyan { background: rgba(34,211,238,.1); border-color: rgba(34,211,238,.22); }
+.hear-ic.cyan svg { stroke: var(--cyan); }
+.hear-ic.violet { background: rgba(167,139,250,.1); border-color: rgba(167,139,250,.24); }
+.hear-ic.violet svg { stroke: var(--violet); }
+.hear-ic.pink { background: rgba(244,114,182,.1); border-color: rgba(244,114,182,.24); }
+.hear-ic.pink svg { stroke: var(--magenta); }
+.hear-card:hover .hear-ic svg { animation: hear-icon .6s cubic-bezier(.2,.8,.2,1) 1; }
+@keyframes hear-icon { 0% { transform: none; } 40% { transform: scale(1.15) rotate(-6deg); } 100% { transform: none; } }
+.hear-demo { padding: 14px; border-radius: 14px; background: rgba(6,8,18,.6); border: 1px solid rgba(140,160,255,.1); font-size: 13.5px; line-height: 1.5; min-height: 112px; box-sizing: border-box; }
+.hear-demo p { margin: 0; }
+.hear-demo .t1 { font-size: 11.5px; color: var(--cyan); }
+.hear-demo .t2 { font-size: 11.5px; color: var(--violet); }
+.hear-lines { display: grid; gap: 8px; }
+.hear-lines > div { display: grid; grid-template-columns: 38px 1fr; gap: 8px; }
+.hear-lines > div > .mono { padding-top: 2px; }
+.hear-lines .hl { margin: 0 -6px; padding: 4px 6px; border-radius: 8px; background: rgba(167,139,250,.08); }
+.hear-lines b { font-weight: 600; margin-right: 4px; }
+.hear-lines .s1 { color: var(--cyan); }
+.hear-lines .s2 { color: var(--violet); }
+.hear-tabs, .hear-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hear-tabs button, .hear-chips button { font: inherit; font-size: 13px; min-height: 34px; padding: 6px 12px; cursor: pointer; color: var(--muted); background: transparent; border: 1px solid rgba(140,160,255,.14); transition: background .15s, color .15s, border-color .15s; }
+.hear-tabs button { border-radius: 10px; }
+.hear-chips button { border-radius: 999px; background: rgba(140,160,255,.05); color: #c9d0ee; }
+.hear-tabs button:hover, .hear-chips button:hover { color: var(--text); border-color: rgba(140,160,255,.32); }
+.hear-tabs button[aria-selected="true"] { color: var(--text); background: rgba(167,139,250,.14); border-color: rgba(167,139,250,.45); }
+.hear-chips button[aria-pressed="true"] { color: var(--text); background: rgba(244,114,182,.12); border-color: rgba(244,114,182,.5); }
+.hear-tabs button:focus-visible, .hear-chips button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.hear-demo .note { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.hear-demo .tag { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+.hear-demo .tag.ok { color: var(--lime); }
+.hear-demo .tag.act { color: var(--amber); }
+.hear-demo .bubble { width: fit-content; max-width: 90%; padding: 6px 11px; margin-bottom: 8px; }
+.hear-demo .bubble.q { margin-left: auto; border-radius: 12px 12px 4px 12px; background: rgba(34,211,238,.12); border: 1px solid rgba(34,211,238,.25); }
+.hear-demo .bubble.a { border-radius: 12px 12px 12px 4px; background: rgba(140,160,255,.08); }
+.hear-demo .q { font-weight: 600; margin-bottom: 8px; }
+.hear-demo .opt { padding: 6px 10px; margin-bottom: 6px; border-radius: 10px; border: 1px solid rgba(140,160,255,.14); color: var(--muted); }
+.hear-demo .opt.right { color: var(--text); border-color: rgba(163,230,53,.45); background: rgba(163,230,53,.08); }
+.hear-demo .dim { color: var(--muted); margin-top: 4px; }
+.hear-demo .draft { color: #c9d0ee; }
+
+/* background: a very subtle glow that follows the cursor (desktop only; see main.js) */
+.bg-cursor { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 42% 36% at calc(72% + var(--cx, 0%)) calc(34% + var(--cy, 0%)), rgba(34,211,238,.06), transparent 70%); }
+
+@media (max-width: 980px) {
+  .hear-grid { grid-template-columns: minmax(0, 1fr); max-width: 560px; }
+}
+@media (hover: none) {
+  .hear-card:hover { transform: none; box-shadow: none; }
+}
