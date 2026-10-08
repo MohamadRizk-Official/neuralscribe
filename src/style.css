@@ -853,6 +853,7 @@ label.btn { display: inline-flex; align-items: center; }
 .lib-select option { background: #0b0e1d; color: var(--text); }
 
 .lib-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; border-radius: 16px; transition: border-color .15s, background .15s; }
+.panel.lib-card { padding: 0; } /* the card's link and buttons carry their own padding (bigger tap targets) */
 .lib-card:hover { border-color: rgba(34,211,238,.35); }
 .lib-card.selecting { grid-template-columns: auto minmax(0, 1fr) auto; cursor: pointer; }
 .lib-card.selected { border-color: rgba(34,211,238,.6); background: rgba(34,211,238,.06); }
