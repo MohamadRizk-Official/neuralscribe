@@ -124,8 +124,12 @@ decisions and action items whose supporting words (`evidence`) aren't word for w
 chapter times from real lines. Prompts (`server/ai/prompts.js`) share one rule set for every feature: keep the
 speakers' own hedges and frequency words (sometimes ≠ often, might ≠ will, suggested ≠ agreed), no outside
 knowledge, quotation marks only around exact words, a decision only where agreement is stated, owner/deadline only
-when said ("Not specified" otherwise), and speakers named only by their transcript labels. Answers the transcript doesn't support come back as "I couldn't find that in this
-recording."; an answer without any citation is labelled as unsupported. Speaker labels are never turned into guessed
+when said ("Not specified" otherwise), and speakers named only by their transcript labels. Ask may reason from what was said
+when a question calls for it ("What does he want from me?", "Does this seem urgent?"), but keeps explicit statements and
+inference apart ("He said…" vs "It sounds like…"), cites the lines behind an inference, never claims to have heard tone
+of voice (the model only gets text), and answers questions the recording doesn't cover specifically ("No deadline was
+mentioned.") without outside knowledge. Follow-ups ("Why?") use the last few turns for context, never as evidence. An
+answer that states something without any citation is labelled as unsupported. Speaker labels are never turned into guessed
 names, and relative dates ("next Friday") are kept as said.
 
 **Retrieval (Ask).** Transcripts up to ~7k tokens (≈ 25–30 min) are sent whole. Longer ones: a cheap call expands
@@ -167,7 +171,7 @@ clicks Create, and every result is saved with the recording.
 | General | Action Plan |
 | Voice message | Reply Draft |
 
-Plus **Export** for every type. Extracted information (actions, dates, decisions, definitions, exam information, quotes) lives in Notes, not Create. Reply Draft and Follow-up Email first ask what the draft should do (e.g. acknowledge, confirm, ask a question, decline / recap, confirm decisions, ask for updates) and accept optional instructions: facts come from the recording, and anything the user writes (e.g. "tell him I'll call Friday") may be added because they asked for it; other dates, times, amounts or urgency are flagged.
+Plus **Export** for every type. Extracted information (actions, dates, decisions, definitions, exam information, quotes) lives in Notes, not Create. Reply Draft and Follow-up Email require the user to write what the draft should be about (no preset buttons): the request decides the purpose, facts come from the recording, anything the request itself states (e.g. "tell him I'll call Friday") is included because the user asked for it, and no other commitments are added; other dates, times, amounts or urgency are flagged.
 
 - **Grounding.** Same rules as Phase 3 (exact meaning, no outside knowledge, speaker labels only), and every item must
   cite real lines. `quote` and `evidence` fields must appear word for word. On top of that: an "explicit exam" item

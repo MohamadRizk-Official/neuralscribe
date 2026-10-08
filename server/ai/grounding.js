@@ -4,7 +4,7 @@
 //  * quotes, and the evidence behind decisions and action items, must appear word for word in the
 //    cited lines, otherwise the item is dropped;
 //  * chapters get their timestamps from real lines, in time order, never from the model.
-import { citedIds, splitCitations, isNotFound } from '../../src/lib/segments.js';
+import { citedIds, splitCitations, isNegativeAnswer } from '../../src/lib/segments.js';
 
 const MAX_REFS = 5;
 const MIN_CHAPTER_S = 20;
@@ -89,10 +89,12 @@ export function groundChapters(chapters, segments) {
 export function groundAnswer(text, allowedIds) {
   const allowed = new Set(allowedIds);
   const raw = String(text || '').trim();
-  const found = !isNotFound(raw);
   const parts = splitCitations(raw, (id) => allowed.has(id));
   const answer = parts.map((p) => (p.refs ? `[${p.refs.join(', ')}]` : p.text)).join('').trim();
   const refs = citedIds(answer);
   const invalid = citedIds(raw).filter((id) => !allowed.has(id));
-  return { answer: found ? answer : raw, refs: found ? refs : [], found, unsupported: found && !refs.length, invalidCitations: invalid.length };
+  // found = the answer reports something from the recording (with citations). An uncited answer that says
+  // what wasn't mentioned is a valid "not in the recording" answer; any other uncited answer is unsupported.
+  const found = refs.length > 0 || !isNegativeAnswer(answer);
+  return { answer, refs, found, unsupported: found && !refs.length, invalidCitations: invalid.length };
 }
