@@ -8,10 +8,12 @@
 //   3. agglomerative clustering of embeddings -> global speakers across the whole file
 //   4. cut the audio into speaker turns (silence skipped); turns longer than Whisper's 30 s window
 //      are split at a pause, or — if there is no pause — with a 1 s overlap that is de-duplicated
-//   5. language: detected from up to 8 clips spread across the file; mixed-language recordings let
-//      Whisper pick per turn among the detected languages
-//   6. Whisper transcribes the turns in batches (optionally primed with "important words")
-//   7. Best Accuracy: turns Whisper itself was unsure about (avg log-prob, repetition) are retried
+//   5. V1 is English only: every clip is decoded as English speech -> English text (never translated)
+//   6. Whisper transcribes the turns in batches (optionally primed with "important words"), each clip
+//      under WhisperControl (engine/decoding.js): no-speech probability, a token budget from the clip's
+//      own length, and a guard that stops runaway repetition; output is read only up to <|endoftext|>
+//   7. Best Accuracy: turns Whisper itself was unsure about (avg log-prob, repetition, a stopped loop)
+//      are retried; clips Whisper judges to be non-speech produce no text
 import {
   pipeline,
   AutoProcessor,
@@ -22,7 +24,8 @@ import {
 } from '@huggingface/transformers';
 import { analyzeAudio, preprocess } from './engine/preprocess.js';
 import { mergeOverlap } from './engine/merge.js';
-import { TokenLogprobRecorder, LanguageControl, compressionRatio } from './engine/decoding.js';
+import { TokenLogprobRecorder, WhisperControl, compressionRatio } from './engine/decoding.js';
+import { tailRepetition, cutTextLoop, wordKeys, tidy, tidyCut } from './engine/loops.js';
 
 const ASR_MODELS = {
   tiny: 'onnx-community/whisper-tiny',
@@ -75,9 +78,9 @@ const LOGPROB_THRESHOLD = -1.0; // average token log-probability below this = mo
 const COMPRESSION_THRESHOLD = 2.4; // highly repetitive output ("the the the…") = likely hallucination
 const RETRY_TEMPERATURES = [0.2, 0.5];
 const MAX_PROMPT_TOKENS = 100; // "important words" prompt budget (Whisper allows ~224)
-
-// Every language Whisper knows; filtered against the loaded tokenizer.
-const WHISPER_LANGS = 'en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue'.split(' ');
+const NO_SPEECH_THRESHOLD = 0.6; // Whisper's own "this clip has no speech" probability (OpenAI uses 0.6)
+const TOKENS_PER_S = 7; // ceiling on text tokens per second of audio (fast English speech is ~4–5)
+const DECODE_TIMESTAMPS = false; // Whisper timestamp mode; accuracy lab can switch it on (e.data.timestamps)
 
 // Whisper sometimes "hears" these in near-silence.
 const HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|\.+|subtitles by .*|please subscribe.*)$/i;
@@ -656,8 +659,9 @@ async function diarize(audio, numSpeakers) {
   for (const r of energyRuns(rms)) for (const g of subtract(r, rawSpeech)) fills.push(g);
 
   // One person: speaker identity is known, so every bit of speech belongs to them.
+  // Fills keep `fill: true`: they are transcribed as their own clips and must pass the no-speech check.
   if (numSpeakers === 1) {
-    const segments = [...rawSpeech, ...fills].map((s) => ({ ...s, speaker: 'SPEAKER_00' }));
+    const segments = [...rawSpeech, ...fills.map((f) => ({ ...f, fill: true }))].map((s) => ({ ...s, speaker: 'SPEAKER_00' }));
     return { segments, stats: { mode: 'single' } };
   }
 
@@ -679,7 +683,7 @@ async function diarize(audio, numSpeakers) {
       segments.push({ start: s.start, end: s.end, speaker: names.get(`${c}|${local}`) ?? UNKNOWN });
     }
   });
-  for (const f of fills) segments.push({ ...f, speaker: UNKNOWN });
+  for (const f of fills) segments.push({ ...f, speaker: UNKNOWN, fill: true });
 
   status('Checking speaker changes…');
   const totalSpeech = segments.reduce((t, s) => t + (s.speaker === UNKNOWN ? 0 : s.end - s.start), 0);
@@ -773,17 +777,19 @@ function buildTurns(audio, segments) {
     const speech = [...segments].sort((a, b) => a.start - b.start);
     items = speech.slice();
     // Loud audio the speaker model didn't label becomes "Unknown" instead of being dropped.
-    for (const r of runs) for (const g of subtract(r, speech)) items.push({ ...g, speaker: UNKNOWN });
+    for (const r of runs) for (const g of subtract(r, speech)) items.push({ ...g, speaker: UNKNOWN, fill: true });
   } else {
     items = runs.map((r) => ({ ...r, speaker: 'SPEAKER_00' }));
   }
   items.sort((a, b) => a.start - b.start);
 
+  // Recognised speech and "only loud" stretches (fills: tapping, noise, breath, or a missed word) are
+  // never merged into one clip: a voice clip that runs on into noise is where Whisper invents text.
   const merged = [];
   for (const it of items) {
     const last = merged[merged.length - 1];
-    if (last && last.speaker === it.speaker && it.start - last.end <= MERGE_GAP_S) last.end = Math.max(last.end, it.end);
-    else merged.push({ ...it });
+    if (last && last.speaker === it.speaker && !!last.fill === !!it.fill && it.start - last.end <= MERGE_GAP_S) last.end = Math.max(last.end, it.end);
+    else merged.push({ ...it, fill: !!it.fill });
   }
 
   const turns = [];
@@ -827,17 +833,6 @@ const clipFor = (audio, t) =>
   );
 const clipSeconds = (t) => t.end - t.start + (t.hardStart ? OVERLAP_S : PAD_S) + (t.hardEnd ? OVERLAP_S : PAD_S);
 
-// Token ids of every language the loaded model supports.
-function languageTokens(tok) {
-  const unk = tok.unk_token_id ?? tok.model?.tokens_to_ids?.get?.('<|endoftext|>');
-  const map = new Map(); // id -> code
-  for (const code of WHISPER_LANGS) {
-    const id = tok.convert_tokens_to_ids(`<|${code}|>`);
-    if (id != null && id !== unk && !map.has(id)) map.set(id, code);
-  }
-  return map;
-}
-
 // "Important words" become a Whisper prompt: <|startofprev|> + " Hadi Salame, SparkScribe, …"
 // which biases spelling towards them (same mechanism as OpenAI's initial_prompt).
 function vocabularyPrompt(tok, words) {
@@ -848,110 +843,124 @@ function vocabularyPrompt(tok, words) {
   return [tokenId(tok, '<|startofprev|>'), ...ids];
 }
 
-// Language: sample up to 8 clips spread across the recording (longest turn in each eighth),
-// ask Whisper for its language probabilities on each, and weight them by clip length.
-// If a second language holds a real share (≥15% of the evidence, or one clip that is clearly
-// in it), the recording is treated as mixed and Whisper picks per turn among those languages.
-async function detectLanguages(audio, turns, langIds) {
+// One batched Whisper pass over `idx` turns. Returns text + Whisper's own signals per turn.
+// Every clip is decoded as English speech -> English text (task "transcribe", never "translate").
+async function decodeBatch(audio, turns, idx, { vocabIds, temperature = 0, timestamps = DECODE_TIMESTAMPS }) {
   const tok = asr.tokenizer;
-  const total = audio.length / SR;
-  const buckets = new Map();
-  for (const t of turns) {
-    const b = Math.min(7, Math.floor((t.start / total) * 8));
-    const cur = buckets.get(b);
-    if (!cur || t.end - t.start > cur.end - cur.start) buckets.set(b, t);
-  }
-  const sample = [...buckets.values()].filter((t) => t.end - t.start >= 1.5);
-  if (!sample.length) sample.push(...[...turns].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, 3));
-  if (!sample.length) return { codes: ['en'], scores: {} };
+  const eosId = tok.eos_token_id ?? tokenId(tok, '<|endoftext|>');
+  const noTs = tokenId(tok, '<|notimestamps|>');
+  // <|startoftranscript|> is the prompt; language/task are forced token by token so the no-speech
+  // probability can be read at the first step (it is defined right after <|startoftranscript|>).
+  const prompt = [...vocabIds, tokenId(tok, '<|startoftranscript|>')];
+  const forced = [tokenId(tok, '<|en|>'), tokenId(tok, '<|transcribe|>'), ...(timestamps ? [] : [noTs])];
+  const secs = idx.map((k) => clipSeconds(turns[k]));
+  const tsBegin = noTs + 1;
 
-  const allIds = [...langIds.keys()];
-  const control = new LanguageControl(1, allIds, [tokenId(tok, '<|transcribe|>'), tokenId(tok, '<|notimestamps|>')]);
+  const control = new WhisperControl({
+    promptLen: prompt.length,
+    forced,
+    noSpeechId: noSpeechToken(tok),
+    suppress: suppressList(),
+    eosId,
+    blankId: tok.encode(' ', { add_special_tokens: false })[0] ?? null,
+    // at most ~7 tokens per second of audio (fast speech is ~4–5): a clip can't "say" more than that
+    budgets: secs.map((s) => Math.ceil(s * TOKENS_PER_S) + 12),
+    timestamps: timestamps ? { begin: tsBegin, noTimestampsId: noTs, maxIndex: secs.map((s) => Math.round(s / 0.02)), maxInitialIndex: 50 } : null,
+  });
+  const recorder = new TokenLogprobRecorder(eosId, prompt.length + forced.length, idx.length, temperature);
   const processors = new LogitsProcessorList();
   processors.push(control);
-  const inputs = await featuresFor(sample.map((t) => clipFor(audio, t)));
-  await asr.model.generate({
-    inputs,
-    decoder_input_ids: sample.map(() => [tokenId(tok, '<|startoftranscript|>')]),
-    max_new_tokens: 1,
-    begin_suppress_tokens: null,
-    logits_processor: processors,
-  });
-
-  const score = new Map();
-  let weightSum = 0;
-  const confident = new Set();
-  sample.forEach((t, i) => {
-    const w = Math.min(30, t.end - t.start);
-    weightSum += w;
-    const probs = control.langProbs[i];
-    if (!probs) return;
-    for (const [id, p] of probs) score.set(id, (score.get(id) || 0) + p * w);
-    const [topId, topP] = [...probs].sort((a, b) => b[1] - a[1])[0];
-    if (topP >= 0.6 && t.end - t.start >= 3) confident.add(topId);
-  });
-  const ranked = [...score].map(([id, s]) => [id, s / weightSum]).sort((a, b) => b[1] - a[1]);
-  const picked = ranked.filter(([id, share], k) => k === 0 || share >= 0.15 || confident.has(id)).slice(0, 3);
-  return {
-    codes: picked.map(([id]) => langIds.get(id)),
-    scores: Object.fromEntries(ranked.slice(0, 5).map(([id, s]) => [langIds.get(id), +s.toFixed(3)])),
-  };
-}
-
-// One batched Whisper pass over `idx` turns. Returns text + Whisper's own confidence per turn.
-async function decodeBatch(audio, turns, idx, { languages, langIds, vocabIds, temperature = 0 }) {
-  const tok = asr.tokenizer;
-  const sot = tokenId(tok, '<|startoftranscript|>');
-  const transcribe = tokenId(tok, '<|transcribe|>');
-  const noTs = tokenId(tok, '<|notimestamps|>');
-  const fixed = languages.length === 1;
-  const prompt = fixed
-    ? [...vocabIds, sot, tokenId(tok, `<|${languages[0]}|>`), transcribe, noTs]
-    : [...vocabIds, sot]; // language / task chosen inside generation by LanguageControl
-  const forced = fixed ? 0 : 3;
-
-  const processors = new LogitsProcessorList();
-  let control = null;
-  if (!fixed) {
-    const ids = languages.map((c) => tokenId(tok, `<|${c}|>`));
-    control = new LanguageControl(prompt.length, ids, [transcribe, noTs]);
-    processors.push(control);
-  }
-  const recorder = new TokenLogprobRecorder(tok.eos_token_id ?? tokenId(tok, '<|endoftext|>'), prompt.length + forced, idx.length, temperature);
   processors.push(recorder);
 
-  const longest = Math.max(...idx.map((k) => clipSeconds(turns[k])));
-  const maxNew = Math.min(447 - prompt.length, Math.ceil(longest * 9) + 24 + forced); // runaway-repetition guard
+  const longest = Math.max(...secs);
+  const maxNew = Math.min(447 - prompt.length, forced.length + Math.ceil(longest * TOKENS_PER_S) + 12 + (timestamps ? 64 : 0) + 2);
   const inputs = await featuresFor(idx.map((k) => clipFor(audio, turns[k])));
   const out = await asr.model.generate({
     inputs,
     decoder_input_ids: idx.map(() => prompt),
-    begin_suppress_tokens: null, // its index is derived from the (batched) prompt length
+    begin_suppress_tokens: null, // handled per row by WhisperControl
+    suppress_tokens: null, // applied by WhisperControl after it has read the no-speech probability
     max_new_tokens: maxNew,
     logits_processor: processors,
     ...(temperature > 0 ? { do_sample: true, temperature, top_k: 0 } : {}),
   });
   const rows = out.tolist();
   const avg = recorder.finish(rows);
-  const eos = BigInt(tok.eos_token_id ?? tokenId(tok, '<|endoftext|>'));
 
   return Promise.all(
     idx.map(async (k, j) => {
-      const row = rows[j];
-      const gen = row.slice(prompt.length);
-      const text = tok.decode(gen, { skip_special_tokens: true }).trim();
-      const language = fixed ? languages[0] : langIds.get(Number(gen[0])) || languages[0];
-      const hitLimit = !gen.includes(eos) && gen.length >= maxNew;
-      return { text, avgLogprob: avg[j], compression: await compressionRatio(text), language, hitLimit };
+      // Read each row only up to its own <|endoftext|>. Transformers.js keeps generating for rows that
+      // have finished until the whole batch is done; whatever follows <|endoftext|> is not transcript
+      // (reading it is what produced "so, so, so…" / "m m m…" after the last real word).
+      const gen = [];
+      for (const t of rows[j].slice(prompt.length + forced.length)) {
+        const n = Number(t);
+        if (n === eosId) break;
+        gen.push(n);
+      }
+      const textIds = gen.filter((t) => t < tsBegin);
+      const stopped = control.stopped[j];
+      let text = tok.decode(textIds, { skip_special_tokens: true });
+      let loop = null;
+      if (stopped === 'loop') {
+        // the guard stopped a runaway repetition: remove the whole run of that unit from the end
+        const r = tailRepetition(textIds);
+        const unit = tok.decode(textIds.slice(r.start, r.start + r.unit), { skip_special_tokens: true });
+        const cut = cutTextLoop(text, wordKeys(unit));
+        if (cut) ({ text, loop } = cut);
+      } else {
+        const cut = cutTextLoop(text); // the same check on words, for runs the token check didn't stop
+        if (cut) ({ text, loop } = cut);
+      }
+      text = loop ? tidyCut(text) : tidy(text);
+      return {
+        text,
+        avgLogprob: avg[j],
+        compression: await compressionRatio(text),
+        noSpeech: control.noSpeech[j] ?? 0,
+        loop,
+        hitLimit: stopped === 'budget',
+        language: 'en',
+      };
     }),
   );
 }
 
+let suppressCache = null;
+function suppressList() {
+  if (!suppressCache) suppressCache = (asr.model.generation_config?.suppress_tokens || []).filter((id) => id !== noSpeechToken(asr.tokenizer));
+  return suppressCache;
+}
+function noSpeechToken(tok) {
+  for (const name of ['<|nospeech|>', '<|nocaptions|>']) {
+    const id = tok.convert_tokens_to_ids(name);
+    if (id != null && id !== tok.unk_token_id) return id;
+  }
+  return null;
+}
+
 const normWords = (s) => s.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}'\s]+/gu, ' ').split(/\s+/).filter(Boolean);
+
+// Whisper says there is no speech, and what it produced anyway is unconvincing (OpenAI's rule), or the
+// stretch was only "loud" (never recognised as a voice by the speech detector) and the text has no
+// real support: Whisper leans towards no-speech, isn't confident, or produced one of its stock
+// "silence" phrases. (large-v3-turbo's no-speech probability is ~0 even on pure humming, so for
+// Best Accuracy the confidence and stock-phrase checks are what catch non-speech.)
+const FILL_MIN_LOGPROB = -0.5;
+// A whole clip that comes back as one low-confidence "word" ("Oum." for a hum) is a sound, not speech;
+// a real one-word reply ("Yes.", "Okay.") is decoded with far higher confidence.
+const SINGLE_WORD_MIN_LOGPROB = -0.7;
+function isNoSpeech(r, turn) {
+  if (r.noSpeech > NO_SPEECH_THRESHOLD && r.avgLogprob < LOGPROB_THRESHOLD) return true;
+  if (turn.fill && (r.noSpeech > 0.5 || r.avgLogprob < FILL_MIN_LOGPROB || HALLUCINATIONS.test(r.text))) return true;
+  if (r.text.split(/\s+/).filter(Boolean).length === 1 && r.avgLogprob < SINGLE_WORD_MIN_LOGPROB) return true;
+  return false;
+}
 
 function needsRetry(r, turn, vocabWords) {
   if (!r.text) return false;
-  if (r.hitLimit || r.compression > COMPRESSION_THRESHOLD || r.avgLogprob < LOGPROB_THRESHOLD) return true;
+  if (isNoSpeech(r, turn)) return false; // silence/noise: nothing to recover
+  if (r.loop || r.hitLimit || r.compression > COMPRESSION_THRESHOLD || r.avgLogprob < LOGPROB_THRESHOLD) return true;
   // a short clip that comes back as just the "important words" is the prompt leaking, not speech
   if (vocabWords.size && turn.end - turn.start < 4) {
     const w = normWords(r.text);
@@ -960,10 +969,11 @@ function needsRetry(r, turn, vocabWords) {
   return false;
 }
 
-// Better = no repetition problem first, then higher average log-probability.
+// Better = no repetition problem first, then higher average log-probability. (A loop is very
+// confident — high log-probability — so "no loop" has to be decided before confidence.)
 const betterThan = (a, b) => {
-  const okA = a.compression <= COMPRESSION_THRESHOLD && !a.hitLimit;
-  const okB = b.compression <= COMPRESSION_THRESHOLD && !b.hitLimit;
+  const okA = a.compression <= COMPRESSION_THRESHOLD && !a.hitLimit && !a.loop;
+  const okB = b.compression <= COMPRESSION_THRESHOLD && !b.hitLimit && !b.loop;
   if (okA !== okB) return okA;
   return a.avgLogprob > b.avgLogprob;
 };
@@ -976,10 +986,12 @@ async function transcribeTurns(audio, turns, opts) {
   const results = new Array(turns.length);
   let doneSec = 0;
 
+  const trace = opts.trace; // accuracy lab only: every attempt per turn
+  const note = (k, attempt, r, chosen) => trace?.push({ turn: k, attempt, text: r.text, avgLogprob: +r.avgLogprob.toFixed(3), compression: +r.compression.toFixed(2), noSpeech: +(r.noSpeech ?? 0).toFixed(3), loop: r.loop, hitLimit: r.hitLimit, chosen });
   for (let i = 0; i < order.length; i += batchSize) {
     const idx = order.slice(i, i + batchSize);
     const batch = await decodeBatch(audio, turns, idx, opts);
-    idx.forEach((k, j) => { results[k] = batch[j]; });
+    idx.forEach((k, j) => { results[k] = batch[j]; note(k, 'greedy', batch[j], true); });
     doneSec += idx.reduce((s, k) => s + (turns[k].end - turns[k].start), 0);
     onProgress(doneSec, total);
   }
@@ -1004,6 +1016,7 @@ async function transcribeTurns(audio, turns, opts) {
           const idx = flagged.slice(i, i + batchSize);
           const batch = await decodeBatch(audio, turns, idx, { ...opts, ...attempt });
           idx.forEach((k, j) => {
+            note(k, attempt.temperature ? `t=${attempt.temperature}` : 'no-prompt', batch[j], !!(batch[j].text && betterThan(batch[j], results[k])));
             if (batch[j].text && betterThan(batch[j], results[k])) {
               if (!results[k].retriedBetter) stats.improved++;
               results[k] = { ...batch[j], retriedBetter: true };
@@ -1076,34 +1089,27 @@ self.addEventListener('message', async (e) => {
     else status('Detecting speech…');
 
     const turns = buildTurns(audio, segments);
-    if (!turns.length) throw new Error('No speech was found in this file.');
+    if (!turns.length) {
+      // silence / noise only: an empty transcript, never invented words (and not an error)
+      post({ type: 'complete', lines: [], language: 'en', ms: performance.now() - lap0.t, device: dev, stats: { mode, model: asr.modelKey, languages: ['en'], turns: 0, noSpeechFound: true, preprocessing: prep, speakers: diarStats } });
+      return;
+    }
 
     post({ type: 'stage', stage: 'run' });
     const tok = asr.tokenizer;
-    const langIds = languageTokens(tok);
-    let languages;
-    let langScores = null;
-    if (language) {
-      languages = [language]; // the user's choice is always respected
-    } else if (Array.isArray(e.data.languages) && e.data.languages.length) {
-      languages = e.data.languages; // testing / accuracy lab: force a candidate set (exercises per-turn choice)
-    } else {
-      status('Detecting language…');
-      const det = await detectLanguages(audio, turns, langIds);
-      languages = det.codes;
-      langScores = det.scores;
-      post({ type: 'language', language: languages[0], languages });
-      lap(`language=${languages.join('+')} ${JSON.stringify(langScores)}`);
-    }
+    // V1 is English only: every clip is decoded as English speech -> English text. No language
+    // detection, never Whisper's "translate" task.
+    post({ type: 'language', language: 'en', languages: ['en'] });
 
     const vocabIds = vocabularyPrompt(tok, vocabulary);
     const heavy = asr.modelKey === 'turbo' || asr.modelKey === 'small';
     const batchSize = dev === 'webgpu' ? (heavy ? 4 : 16) : 2;
+    const asrTrace = e.data.trace ? [] : null;
     const { results, stats } = await transcribeTurns(audio, turns, {
+      trace: asrTrace,
       batchSize,
-      languages,
-      langIds,
       vocabIds,
+      ...(typeof e.data.timestamps === 'boolean' && { timestamps: e.data.timestamps }),
       vocabulary,
       secondPass: secondPass ?? mode === 'best',
       onProgress: (done, total) => {
@@ -1111,37 +1117,43 @@ self.addEventListener('message', async (e) => {
         status(`Transcribing… ${Math.round((done / total) * 100)}% (${fmt(done)} of ${fmt(total)} of speech)`);
       },
     });
+    const beforeMerge = asrTrace ? results.map((r) => r.text) : null;
     const overlapWordsRemoved = mergeSplitPieces(turns, results);
     lap(`whisper (${turns.length} turns, retried ${stats.retried}, improved ${stats.improved})`);
 
     const lines = [];
+    const dropped = { noSpeech: 0, hallucination: 0 };
     turns.forEach((t, i) => {
       const r = results[i];
       const dur = t.end - t.start;
-      if (!r.text || (dur < 3 && HALLUCINATIONS.test(r.text))) return;
+      if (!r.text) return;
+      if (isNoSpeech(r, t)) { dropped.noSpeech++; return; }
+      if (dur < 3 && HALLUCINATIONS.test(r.text)) { dropped.hallucination++; return; }
       lines.push({
         start: t.start,
         end: t.end,
         speaker: t.speaker,
         text: r.text,
-        language: r.language,
-        // Whisper's own signal, after any retry. Shown as "worth double-checking", never as a percentage.
-        uncertain: r.avgLogprob < LOGPROB_THRESHOLD,
+        language: 'en',
+        // Whisper's own signals, after any retry: low confidence, or a runaway repetition that was cut.
+        // Shown as "worth double-checking", never as a percentage.
+        uncertain: r.avgLogprob < LOGPROB_THRESHOLD || !!r.loop,
       });
     });
-    const usedLangs = [...new Set(lines.map((l) => l.language))];
     post({
       type: 'complete',
       lines,
-      language: languages.length === 1 ? languages[0] : usedLangs[0] || languages[0],
+      language: 'en',
       ms: performance.now() - lap0.t,
       device: dev,
       stats: {
         mode,
         model: asr.modelKey,
         turboVariant: asr.modelKey === 'turbo' ? turboVariant : undefined,
-        languages: usedLangs,
-        languageScores: langScores,
+        languages: ['en'],
+        loopsCut: results.filter((r) => r.loop).length,
+        loopWordsRemoved: results.reduce((s, r) => s + (r.loop?.removedWords || 0), 0),
+        droppedAsNoSpeech: dropped.noSpeech,
         vocabularyTokens: Math.max(0, vocabIds.length - 1),
         turns: turns.length,
         hardSplits: turns.filter((t) => t.hardEnd).length,
@@ -1157,6 +1169,12 @@ self.addEventListener('message', async (e) => {
         })(),
         preprocessing: prep,
         speakers: diarStats,
+        ...(asrTrace && {
+          trace: {
+            turns: turns.map((t, i) => ({ i, start: +t.start.toFixed(2), end: +t.end.toFixed(2), speaker: t.speaker, fill: !!t.fill, hardStart: !!t.hardStart, hardEnd: !!t.hardEnd, noSpeech: +(results[i].noSpeech ?? 0).toFixed(3), loop: results[i].loop, beforeMerge: beforeMerge[i], afterMerge: results[i].text })),
+            attempts: asrTrace,
+          },
+        }),
       },
     });
   } catch (err) {

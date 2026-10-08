@@ -12,6 +12,7 @@ $('configs').value = JSON.stringify(DEFAULT_CONFIGS, null, 1);
 
 let items = []; // { name, file|url, ref, meta }
 let results = [];
+window.__evalResults = () => results; // for scripted runs
 
 $('loadSet').addEventListener('click', async () => {
   const base = $('setPath').value.replace(/\/?$/, '/');
@@ -92,7 +93,7 @@ $('run').addEventListener('click', async () => {
           terms: it.meta.vocabulary ? termRecall(it.meta.vocabulary, hyp) : null,
           speakersExpected: it.meta.speakers ?? null, speakersFound,
           retried: out?.stats?.retried ?? null, uncertain: out?.stats?.uncertain ?? null, model: out?.stats?.model ?? cfg.model ?? '', stats: out?.stats ?? null,
-          attr, lines: out?.lines?.map((l) => `${l.speaker}: ${l.text}`) ?? [],
+          attr, lines: out?.lines?.map((l) => `[${l.start.toFixed(1)}–${l.end.toFixed(1)}] ${l.speaker}: ${l.text}`) ?? [],
           hyp, ref: it.ref, ops: w.ops, error,
         });
         render();

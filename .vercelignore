@@ -1,0 +1,15 @@
+# Never upload these with `vercel deploy` (the CLI does not read .gitignore).
+# Recordings used for accuracy testing can be private.
+accuracy/testset/**
+!accuracy/testset/README.md
+accuracy/results
+dist
+dist-eval
+dist-eval-*
+.claude
+.env
+.env.*
+!.env.example
+public/__*
+public/ns_*
+*.log

@@ -6,7 +6,7 @@ import { saveTranscript, updateTranscriptText, stashPending, peekPending, clearP
 const $ = (id) => document.getElementById(id);
 const els = {
   dropPanel: $('dropPanel'), dropzone: $('dropzone'), fileInput: $('fileInput'),
-  modelSelect: $('modelSelect'), langSelect: $('langSelect'), speakersSelect: $('speakersSelect'),
+  modelSelect: $('modelSelect'), speakersSelect: $('speakersSelect'),
   progressPanel: $('progressPanel'), fileName: $('fileName'), fileSub: $('fileSub'), cancelBtn: $('cancelBtn'),
   wave: $('wave'), waveSweep: $('waveSweep'), steps: $('steps'), stageLabel: $('stageLabel'), statusLine: $('statusLine'),
   pctNum: $('pctNum'), etaText: $('etaText'), pctBar: $('pctBar'), downloads: $('downloads'),
@@ -59,23 +59,21 @@ try {
     if (p.model !== undefined) els.modelSelect.value = p.model;
     if (p.vocab) els.vocabInput.value = p.vocab;
   }
-  if (p.language !== undefined) els.langSelect.value = p.language;
   if (p.speakers) els.speakersSelect.value = p.speakers;
 } catch {}
 function savePrefs() {
   try {
     localStorage.setItem(PREF_KEY, JSON.stringify({
-      v: 2, mode: modeValue(), model: els.modelSelect.value, language: els.langSelect.value,
+      v: 2, mode: modeValue(), model: els.modelSelect.value,
       speakers: els.speakersSelect.value, vocab: els.vocabInput.value,
     }));
   } catch {}
 }
 function updateSettingsUI() {
-  const lang = els.langSelect.value ? els.langSelect.selectedOptions[0].textContent : 'Auto language';
   const sp = els.speakersSelect.value;
   const speakers = sp === 'auto' ? 'Auto speakers' : sp === 'off' ? 'No speaker labels' : els.speakersSelect.selectedOptions[0].textContent;
   const n = vocabulary().length;
-  els.advSummary.textContent = [lang, speakers, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
+  els.advSummary.textContent = [speakers, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
   updateModeNote();
 }
 function updateModeNote() {
@@ -89,7 +87,7 @@ function updateModeNote() {
   if (!custom) parts.push(`First use downloads about ${DOWNLOAD_MB[mode][dev === 'webgpu' ? 'webgpu' : 'wasm']} MB of AI models once; after that they load from your browser's cache.`);
   els.modeNote.textContent = parts.join(' ');
 }
-[els.modelSelect, els.langSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
+[els.modelSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
 els.modeInputs.forEach((i) => i.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
 els.vocabInput.addEventListener('input', () => { savePrefs(); updateSettingsUI(); });
 
@@ -349,13 +347,13 @@ async function start(file) {
   const q = new URLSearchParams(location.search);
   const samples = decoded.samples;
   const mode = modeValue();
-  state = { duration: decoded.duration, language: els.langSelect.value, mode };
+  state = { duration: decoded.duration, language: 'en', mode };
   getWorker().postMessage({
     type: 'run',
     audio: samples,
     mode,
     model: els.modelSelect.value, // '' = automatic for the mode
-    language: els.langSelect.value,
+    language: 'en', // V1 transcribes English only
     diarize,
     numSpeakers: diarize && speakersChoice !== 'auto' ? Number(speakersChoice) : Number(q.get('k')) || 0,
     vocabulary: vocabulary(),
@@ -435,7 +433,7 @@ const realSpeakers = () => [...state.speakers.keys()].filter((id) => id !== UNKN
 
 function renderMeta() {
   const words = state.lines.reduce((t, l) => t + l.text.split(/\s+/).filter(Boolean).length, 0);
-  const langs = state.stats?.languages?.length > 1 ? state.stats.languages.map(langName).join(' + ') : state.language ? langName(state.language) : 'Auto';
+  const langs = 'English'; // V1 transcribes English only
   const chips = [
     ['Mode', state.mode === 'fast' ? 'Fast' : 'Best Accuracy'],
     ['Length', fmtTime(state.duration)],
