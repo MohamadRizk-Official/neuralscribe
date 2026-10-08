@@ -64,14 +64,19 @@ function initials(name) {
   for (const s of speakers) colorOf.set(s, s === 'Unknown' ? UNKNOWN_COLOR : COLORS[n++ % COLORS.length]);
   const words = segments.reduce((t, s) => t + s.text.split(/\s+/).filter(Boolean).length, 0);
 
-  const chips = [
-    ['Saved', fmtDate(row.created_at)],
-    ['Length', fmtDuration(row.duration_seconds)],
-    row.language && ['Language', langName(row.language)],
-    speakers.length && ['Speakers', String(speakers.filter((s) => s !== 'Unknown').length)],
-    ['Words', words.toLocaleString()],
-  ].filter(Boolean);
-  $('tMeta').innerHTML = chips.map(([k, v]) => `<span>${esc(k)} <b>${esc(v)}</b></span>`).join('');
+  // primary line: length · speakers · type; the rest sits behind "Details"
+  const chip = ([k, v]) => `<span>${esc(k)} <b>${esc(v)}</b></span>`;
+  const primary = [['Length', fmtDuration(row.duration_seconds)], speakers.length && ['Speakers', String(speakers.filter((s) => s !== 'Unknown').length)]].filter(Boolean);
+  const details = [['Saved', fmtDate(row.created_at)], row.language && ['Language', langName(row.language)], ['Words', words.toLocaleString()]].filter(Boolean);
+  $('tMeta').innerHTML = primary.map(chip).join('')
+    + '<span class="type-slot" id="typeSlot"></span>'
+    + '<button type="button" class="meta-btn details-btn" id="detailsBtn" aria-expanded="false" aria-controls="tDetails">Details</button>';
+  $('tMeta').insertAdjacentHTML('afterend', `<div class="meta-chips meta-details" id="tDetails" hidden>${details.map(chip).join('')}</div>`);
+  $('detailsBtn').addEventListener('click', () => {
+    const open = $('tDetails').hidden;
+    $('tDetails').hidden = !open;
+    $('detailsBtn').setAttribute('aria-expanded', String(open));
+  });
 
   // ---- transcript (Original / Clean) ----
   const rtl = RTL_LANGS.has(row.language);
@@ -174,6 +179,7 @@ function initials(name) {
       playbackTime: () => (player.getAttribute('src') ? player.currentTime || 0 : null),
       getRecordingType: () => recordingType,
       setRecordingType: async (t) => { recordingType = t; await updateRecordingType(row.id, t); },
+      typeSlot: () => $('typeSlot'),
       duration: () => row.duration_seconds || segments.at(-1)?.end || 0,
       autoGenerate: false, // reopening a saved transcript never starts generation by itself
       coarse,

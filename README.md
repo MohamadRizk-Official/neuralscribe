@@ -99,11 +99,11 @@ See [accuracy/README.md](accuracy/README.md) for measuring accuracy on real reco
 - **Original / Clean** transcript view. Clean removes hesitations (um, uh, erm…), directly repeated words and short
   repeated phrases, and stutters, by fixed rules (`src/lib/clean.js`): it can only delete, never add or reword, so
   it can't change meaning. The original is never modified and is what gets saved; exports follow the view on screen.
-- **Tabs:** Transcript · Summary · Notes · Ask · Insights (below).
+- **Tabs:** Transcript · Summary · Notes · Ask · Create (below). One recording type per recording, set from the compact "Type" control in the header (or automatic).
 - **My Library:** search across every saved transcript with timestamps, folders, favorites, filters (below).
 - **Create:** study guides, flashcards, quizzes, meeting recaps, drafts and exports (below).
 
-## Summary, Notes, Ask and Insights
+## Summary, Notes and Ask
 
 Built on top of a saved transcript; the transcript stays the source of truth. Requires a signed-in user.
 
@@ -111,12 +111,11 @@ Built on top of a saved transcript; the transcript stays the source of truth. Re
 | --- | --- | --- |
 | Summary | short summary (TL;DR for voice messages), key points, chapters (recordings ≥ 8 min) | automatically after a fresh transcription once the user has turned summaries on once (first time: one click); otherwise on click |
 | Summary | detailed summary, structured for the recording type | on click |
-| Notes | organized reference / study notes by topic, for the recording type (General: topics, details, statements · Lecture: concepts, definitions, examples, emphasis, exam info only when said · Meeting: topics, decisions, open issues, follow-ups · Interview: questions, responses, themes · Podcast: arguments, examples, takeaways · Voice Message: a few short notes); timestamps on sections and key notes | on click |
-| Insights | by recording type — General: action items, decisions, discussed-not-decided, priorities, concerns, dates · Meeting: + open questions, follow-ups · Lecture: key concepts, definitions, topics, possible exam points · Interview: Q&A, topics, quotes, takeaways · Podcast: topics, takeaways, quotes · Voice Message: requested actions, important information, dates & times | on click, or automatically when a recording type was chosen before transcribing |
+| Notes | everything extracted and organized from the recording: topic notes plus the structured sections that used to be the Insights tab — General: main topics, actions, decisions, dates & times, ideas, priorities, concerns · Meeting: discussion topics, decisions, action items (owner / deadline only when said), dates, open questions, follow-ups · Lecture: topics, concepts, examples, definitions, explicit exam information (needs exam wording) vs worth reviewing · Interview: Q&A, important quotes, takeaways, themes · Podcast: topics, arguments, takeaways, quotes · Voice Message: key information, requested actions, dates & times. Only sections with content are shown, and each item appears once | on click ("Organize notes"), or automatically when a recording type was chosen before transcribing |
 | Ask | questions answered only from the recording, with clickable timestamp citations, streamed | per question |
 
 **Recording type** (General, Lecture, Meeting, Interview, Podcast, Voice Message) is optional: pick it in Advanced
-settings before transcribing or on the Notes / Insights tabs afterwards. It is stored on the transcript.
+settings before transcribing or from the Type control in the recording header. With no type chosen, SparkScribe suggests one from the length and number of speakers ("Auto", no AI). It decides how Notes are organized and which Create tools are offered; the transcript never changes. It is stored on the transcript.
 
 **Grounding.** The model sees each transcript line as `[id] m:ss Speaker: text` and cites line ids, never
 timestamps. The server (`server/ai/grounding.js`) keeps only ids that exist (for Ask: only ids it actually sent),
@@ -161,14 +160,14 @@ clicks Create, and every result is saved with the recording.
 
 | Type | Tools |
 | --- | --- |
-| Lecture | Study Guide, Flashcards (fewer / standard / more), Practice Quiz (multiple choice, true/false, short answer; score, review, free retakes), Key Definitions, Possible Exam Points |
+| Lecture | Study Guide (focus: balanced / exam / key concepts / detailed), Flashcards (fewer / recommended / more), Practice Quiz (count, difficulty, question types; multiple choice, true/false, short answer; score, review, free retakes) |
 | Meeting | Meeting Recap, Action Plan, Follow-up Email draft |
 | Interview | Interview Q&A with verbatim quotes |
 | Podcast | Episode Notes (summary, chapter outline, takeaways, verbatim quotes) |
 | General | Action Plan |
 | Voice message | Reply Draft |
 
-Plus links to results that already exist (Notes, Summary, Insights) and **Export** for every type.
+Plus **Export** for every type. Extracted information (actions, dates, decisions, definitions, exam information, quotes) lives in Notes, not Create. Reply Draft and Follow-up Email first ask what the draft should do (e.g. acknowledge, confirm, ask a question, decline / recap, confirm decisions, ask for updates) and accept optional instructions: facts come from the recording, and anything the user writes (e.g. "tell him I'll call Friday") may be added because they asked for it; other dates, times, amounts or urgency are flagged.
 
 - **Grounding.** Same rules as Phase 3 (exact meaning, no outside knowledge, speaker labels only), and every item must
   cite real lines. `quote` and `evidence` fields must appear word for word. On top of that: an "explicit exam" item

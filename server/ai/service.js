@@ -20,7 +20,7 @@ import { getProvider, taskConfig, AIError } from './provider.js';
 import { createMeter } from './usage.js';
 import { ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, NOTES_SCHEMA, notesInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
 import { groundStructured, groundChapters, groundAnswer } from './grounding.js';
-import { TOOLS, ARTIFACT_KINDS, normalizeSettings, cardCount, questionCount } from './tools.js';
+import { TOOLS, ARTIFACT_KINDS, normalizeSettings, cardCount, questionCount, examBacked } from './tools.js';
 import { selectContext, needsRetrieval, formatExcerpts } from './retrieve.js';
 import { segmentsFromRow, modelLine, estimateTokens, normalizeRecordingType, RECORDING_TYPES } from '../../src/lib/segments.js';
 
@@ -112,7 +112,17 @@ async function generateInsights(row, segments, type, meter) {
   const spec = INSIGHT_SPECS[type] || INSIGHT_SPECS.general;
   const r = await analyze({ task: `insights:${type}`, schema: spec.schema, instructions: spec.instructions, row, segments, meter });
   const { content, dropped } = groundStructured(r.json, segments);
-  return { ...r, content, dropped };
+  let moved = 0;
+  if (type === 'lecture' && Array.isArray(content.exam_points)) {
+    // an exam point needs exam wording in its own quote or line; otherwise it is only worth reviewing
+    const exam = [];
+    for (const it of content.exam_points) {
+      if (examBacked(it, segments)) exam.push(it);
+      else { moved++; (content.worth_reviewing ||= []).push({ text: it.text, refs: it.refs }); }
+    }
+    content.exam_points = exam;
+  }
+  return { ...r, content, dropped: dropped + moved };
 }
 
 async function generateNotes(row, segments, type, meter) {
@@ -194,8 +204,10 @@ export async function generateArtifact(db, { transcriptionId, kind, settings, fo
     const ctx = {
       count: kind === 'flashcards' ? cardCount(minutes, normalized.size) : kind === 'quiz' ? questionCount(minutes, normalized.size) : null,
       transcriptText: segments.map((s) => s.text).join(' '),
+      settings: normalized,
     };
-    const r = await analyze({ task: tool.task, schema: tool.schema, instructions: tool.instructions(ctx), row, segments, meter });
+    const instructions = tool.instructions(ctx) + (tool.focusNote?.[normalized.focus] || '');
+    const r = await analyze({ task: tool.task, schema: tool.schema, instructions, row, segments, meter });
     const g = groundStructured(r.json, segments);
     const extra = tool.validate(g.content, segments, ctx) || 0;
     tool.after?.(g.content, segments);

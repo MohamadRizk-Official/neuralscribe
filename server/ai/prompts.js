@@ -182,13 +182,15 @@ Return empty lists when nothing qualifies.`,
       key_concepts: list(obj({ term: str(), explanation: str('As taught in the lecture'), refs })),
       definitions: list(obj({ term: str(), definition: str('As stated in the lecture'), refs }), 'Only definitions the lecturer explicitly gave'),
       important_topics: list(point),
-      exam_points: list(point, 'Only points the lecturer explicitly connects to exams, tests, quizzes or assignments'),
+      exam_points: list(obj({ text: str(), evidence: evidence('the reference to an exam, test, quiz, assignment, or "know/study this"'), refs }), 'Only points the lecturer explicitly connects to exams, tests, quizzes or assignments'),
+      worth_reviewing: list(point, 'Points the lecturer stressed that were NOT tied to an assessment'),
     }),
     instructions: `This is a lecture. From the transcript above produce:
 - key_concepts: the main concepts with a short explanation, only as taught (no textbook additions).
 - definitions: only explicit definitions the lecturer gave, in the lecturer's words (empty if none).
 - important_topics: the topics a student should focus on, based on what the lecturer emphasised.
-- exam_points: only points the lecturer explicitly connects to exams, tests, quizzes or assignments, or explicitly marks as important to remember. Empty if there are none; do not guess what might be examined.`,
+- exam_points: ONLY where the lecturer explicitly refers to an exam, test, quiz, midterm, assignment or grading, or says "know this" / "study this" / "this will be on…". evidence = those exact words. Empty if there are none; never guess what might be examined.
+- worth_reviewing: other points the lecturer stressed (called important, repeated) that were not tied to an assessment.`,
   },
   interview: {
     schema: obj({
