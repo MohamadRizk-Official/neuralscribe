@@ -3,7 +3,7 @@
 // search_library, library_stats) are SECURITY INVOKER, so they see exactly the same rows. No AI is used here.
 import { supabase } from './supabase.js';
 
-export const PAGE_SIZE = 4; // TEMP: paging test, restore to 24
+export const PAGE_SIZE = 24;
 export const SEARCH_PAGE_SIZE = 10;
 
 const raise = (error) => { if (error) throw error; };
