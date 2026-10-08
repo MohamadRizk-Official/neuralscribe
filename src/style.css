@@ -957,6 +957,7 @@ dialog.sheet h3 { margin: 0 0 10px; }
 .dlg-field input:focus, .folder-new input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(34,211,238,.12); }
 .dlg-err { margin: 0; color: var(--red); font-size: 13.5px; }
 .dlg-err[hidden] { display: none; }
+dialog.confirm p.dlg-err { color: var(--red); margin: 0; }
 .dlg-body p { margin: 0 0 10px; color: #c3cae6; line-height: 1.55; font-size: 14.5px; }
 .dlg-list { margin: 0 0 12px; padding-left: 20px; color: #c3cae6; font-size: 14px; line-height: 1.7; }
 dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0 0 16px; }
@@ -1134,4 +1135,81 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
   .quiz-q { font-size: 17px; }
   .tool-del { margin-left: 0; }
   .exp-formats { grid-template-columns: 1fr; }
+}
+
+/* ===== Phase 5.5: recording page simplification ===== */
+.type-slot:empty { display: none; }
+/* the slot and the pieces of the control are not chips themselves */
+.meta-chips .type-slot, .meta-chips .type-ctl span { padding: 0; border: none; background: none; font: inherit; color: inherit; }
+.meta-chips .type-ctl .type-auto { color: var(--violet); }
+.type-ctl {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-family: var(--mono); font-size: 11px; color: var(--muted);
+  padding: 4px 8px 4px 9px; border-radius: 8px; cursor: pointer;
+  background: rgba(167,139,250,.08); border: 1px solid rgba(167,139,250,.35); transition: border-color .15s, background .15s;
+}
+.type-ctl b { color: var(--text); font-weight: 500; }
+.type-ctl:hover { border-color: rgba(167,139,250,.7); background: rgba(167,139,250,.14); }
+.type-ctl:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.type-ctl svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; }
+.type-auto { color: var(--violet); }
+.details-btn[aria-expanded="true"] { color: var(--text); border-color: var(--line-2); }
+.meta-details { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; margin-top: 2px; }
+.meta-details[hidden] { display: none; }
+.meta-details span {
+  font-family: var(--mono); font-size: 11px; color: var(--muted); padding: 4px 9px; border-radius: 8px;
+  background: rgba(140,160,255,.05); border: 1px dashed var(--line);
+}
+.meta-details span b { color: var(--text); font-weight: 500; }
+.res-title .meta-details { margin-top: 6px; }
+
+.tab-intro { margin: -4px 4px 0; font-size: 13.5px; color: var(--dim); }
+
+/* recording type dialog */
+.type-list { display: grid; gap: 4px; margin: 6px 0 12px; }
+.type-opt {
+  display: grid; gap: 2px; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  padding: 10px 12px; border-radius: 11px; border: 1px solid transparent; background: none;
+}
+.type-opt:hover, .type-opt:focus-visible { background: rgba(140,160,255,.08); outline: none; }
+.type-opt.on { border-color: rgba(167,139,250,.55); background: rgba(167,139,250,.1); }
+.type-opt-name { font-weight: 600; font-size: 15px; }
+.type-opt-desc { font-size: 13px; color: var(--muted); }
+
+/* Notes: grouped sections */
+.notes-group { display: grid; gap: 10px; }
+.notes-group-h, .notes-card .ins-sec > .ins-label:first-child { margin-top: 4px; }
+.notes-group-h { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.notes-card .notes-group + .ins-sec, .notes-card .ins-sec + .notes-group { border-top: 1px solid rgba(140,160,255,.07); padding-top: 12px; }
+.notes-more { border-top: 1px solid var(--line); padding-top: 12px; }
+.notes-more p { margin: 0; }
+
+/* Create: settings, setup dialog, link to Notes */
+.tool-note-link { justify-self: start; font: inherit; font-size: 13.5px; color: var(--muted); background: none; border: none; padding: 6px 0 0; cursor: pointer; text-align: left; }
+.tool-note-link:hover { color: var(--cyan); }
+.tool-settings { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.tool-set { display: grid; gap: 6px; }
+.tool-set .ins-label { margin-top: 0; }
+.tool-setup-sum { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 14px; color: #c3cae6; }
+.tool-instr { margin: -4px 0 0; }
+.opt-group { border: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.opt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt-chip { position: relative; cursor: pointer; }
+.opt-chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.opt-chip span { display: inline-block; font-size: 14px; color: var(--muted); padding: 8px 13px; border-radius: 999px; border: 1px solid var(--line); background: rgba(6,8,18,.55); transition: .15s; }
+.opt-chip input:checked + span { color: var(--text); border-color: rgba(167,139,250,.6); background: rgba(167,139,250,.14); }
+.opt-chip input:focus-visible + span { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.dlg-field textarea {
+  font: inherit; font-size: 16px; color: var(--text); background: rgba(6,8,18,.7); border: 1px solid var(--line-2); border-radius: 11px;
+  padding: 11px 13px; outline: none; resize: vertical; min-height: 84px;
+}
+.dlg-field textarea:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(34,211,238,.12); }
+.dlg-field em { font-style: normal; color: var(--dim); }
+
+@media (max-width: 640px) {
+  /* five tabs: fill the row when they fit, scroll smoothly when they don't */
+  .tab { flex: 1 0 auto; }
+  .tool-settings { display: grid; gap: 12px; }
+  .seg-toggle { width: 100%; }
+  .seg-toggle button { flex: 1; padding: 9px 8px; }
+  .tab-intro { margin: -6px 2px 0; font-size: 13px; }
 }

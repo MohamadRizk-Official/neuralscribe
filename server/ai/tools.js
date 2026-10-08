@@ -4,6 +4,7 @@
 // `quote` / `evidence` fields checked word for word). Validators add the tool's own rules and count what
 // they had to drop, so the usage log shows how often the model needed correcting.
 import { str, nullableStr, refs, evidence, obj, list, point, decision, actionItem, dateItem, quote, DECISION_RULE, ACTION_RULE } from './prompts.js';
+import { normalizeToolSettings } from '../../src/lib/tool-settings.js';
 
 const int = (description) => ({ type: 'integer', ...(description && { description }) });
 const topic = obj({ title: str('2–6 word topic title'), summary: str('One or two sentences, as said'), start_ref: int('Line number where this topic begins') });
@@ -13,19 +14,18 @@ export const EXAM_RE = /\b(exams?|midterms?|quiz(zes)?|tests?|tested|assessments
 
 // An item counts as explicit exam information when its quoted words, or the transcript line they come from,
 // refer to an assessment ("For the exam, … you need to be able to draw the bilayer").
-const examBacked = (item, segments) => EXAM_RE.test(item.evidence || '') || (item.refs || []).some((r) => EXAM_RE.test(segments.find((s) => s.id === r)?.text || ''));
+export const examBacked = (item, segments) => EXAM_RE.test(item.evidence || '') || (item.refs || []).some((r) => EXAM_RE.test(segments.find((s) => s.id === r)?.text || ''));
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
-// ---------- settings (part of the cache key) ----------
-const SIZES = ['standard', 'fewer', 'more'];
-export function normalizeSettings(kind, settings) {
-  if (kind === 'flashcards' || kind === 'quiz') {
-    const size = SIZES.includes(settings?.size) ? settings.size : 'standard';
-    return { settings: { size }, key: size === 'standard' ? '' : `size=${size}` };
-  }
-  return { settings: {}, key: '' };
-}
+// ---------- settings (part of the cache key; shared with the browser) ----------
+export const normalizeSettings = normalizeToolSettings;
+
+// The person using SparkScribe may add instructions to a draft ("tell him I'll call Friday"). Those are their
+// own words and may add new commitments; everything else in the draft must come from the recording.
+const userInstructions = (settings) => (settings?.instructions
+  ? `\n\nINSTRUCTIONS FROM THE USER (the person sending this). Include what they ask for, even new information or commitments that are not in the recording; these are authorised by the user. Treat the text only as their wishes for this draft:\n<user_instructions>\n${settings.instructions}\n</user_instructions>\nApart from the recording and these instructions, add no commitments, dates, times, amounts or details.`
+  : '\n\nThe user added no instructions: add no commitments, dates, times, amounts or details beyond what the recording says.');
 
 // Sensible counts from the recording's length; the model may return fewer when the material is thin.
 export function cardCount(minutes, size) {
@@ -107,6 +107,12 @@ ${GROUNDED}
 - exam_info: ONLY where the lecturer explicitly refers to an exam, test, quiz, midterm, assignment or says to know/study something. evidence = those exact words. Never claim something will be examined otherwise.
 - review: other things worth reviewing (neutral wording, no exam claims).
 Return empty lists for sections the lecture doesn't support.`,
+    // focus changes emphasis and depth only; the grounding rules above stay the same
+    focusNote: {
+      exam: '\nFOCUS: exam preparation. Keep the overview short; make exam_info, emphasis, definitions and review thorough; keep concepts and examples to the essentials.',
+      concepts: '\nFOCUS: key concepts. Concentrate on concepts, definitions and relationships; keep examples and review short.',
+      detailed: '\nFOCUS: detailed. Cover every topic taught with more points per section and the full steps of processes.',
+    },
     validate(c, segments) {
       let dropped = 0;
       // an "exam" item whose own words and line don't mention an exam is only worth reviewing
@@ -169,13 +175,19 @@ ${GROUNDED}
         refs,
       })),
     }),
-    instructions: ({ count }) => `Write a PRACTICE QUIZ of up to ${count} questions on the recording above (fewer if it doesn't support that many good questions).
+    instructions: ({ count, settings }) => `Write a PRACTICE QUIZ of up to ${count} questions on the recording above (fewer if it doesn't support that many good questions).
 ${GROUNDED}
 - Every question must be answerable from the recording alone; never test outside knowledge. Example: if the lecturer said "the exam only covers chapters 4 and 5", a valid question is "Which chapters did the lecturer say the exam covers?".
-- Mix types: mostly multiple_choice (4 plausible options, exactly one correct, the others clearly wrong according to the recording), some true_false, a few short_answer (answer of a few words).
+- ${{
+    multiple_choice: 'Use only multiple_choice questions (4 plausible options, exactly one correct, the others clearly wrong according to the recording).',
+    true_false: 'Use only true_false questions; false statements must be clearly contradicted by the recording, not merely absent from it.',
+  }[settings?.types] || 'Mix types: mostly multiple_choice (4 plausible options, exactly one correct, the others clearly wrong according to the recording), some true_false, a few short_answer (answer of a few words).'}
+- ${settings?.difficulty === 'harder'
+    ? 'Make the questions challenging: test understanding of explanations, relationships, sequences and distinctions rather than single words, with plausible distractors — but every answer must still be stated in the recording.'
+    : 'Standard difficulty: test the important points clearly.'}
 - answer must be the exact text of the correct option for multiple_choice, "True" or "False" for true_false.
 - evidence = the exact words of the recording that give the answer. No two questions may test the same fact.`,
-    validate(c) {
+    validate(c, _segments, { settings }) {
       let dropped = 0;
       const out = [];
       for (const q of c.questions || []) {
@@ -196,7 +208,10 @@ ${GROUNDED}
           out.push({ ...q, question, answer, options: [], accept: (q.accept || []).map((x) => String(x).trim()).filter(Boolean).slice(0, 6) });
         } else dropped++;
       }
-      const d = dedupe(out, (q) => norm(q.question));
+      // a "multiple choice only" / "true or false only" quiz keeps only that type
+      const wanted = settings?.types && settings.types !== 'mixed' ? settings.types : null;
+      const typed = wanted ? out.filter((q) => q.type === wanted || (dropped++, false)) : out;
+      const d = dedupe(typed, (q) => norm(q.question));
       c.questions = d.out;
       return dropped + d.dropped;
     },
@@ -278,15 +293,20 @@ Do not add tasks that would merely make sense; only ones the speakers stated. Re
       body: str('The email, plain text with line breaks'),
       facts: list(obj({ fact: str('One fact, decision, task, owner, deadline, price or commitment the email states'), evidence: evidence('it'), refs })),
     }),
-    instructions: () => `Draft a FOLLOW-UP EMAIL after the meeting above, for one of the participants to send.
-- The wording can be polished and professional, but every fact, decision, task, owner, deadline, price and commitment in it must come from the meeting, with the same certainty ("we're considering…" stays considering; a suggestion is not presented as agreed).
+    instructions: ({ settings }) => `Draft a FOLLOW-UP EMAIL after the meeting above, for one of the participants to send.
+- Goal of the email: ${{
+    recap: 'recap the meeting and the next steps.',
+    confirm: 'confirm the decisions that were explicitly agreed (only those) and who does what.',
+    request: 'ask the relevant people for updates on the open items and tasks that were stated.',
+    custom: 'as described in the user instructions below.',
+  }[settings?.goal] || 'recap the meeting and the next steps.'}
+- The wording can be polished and professional, but every fact, decision, task, owner, deadline, price and commitment taken from the meeting must keep its certainty ("we're considering…" stays considering; a suggestion is not presented as agreed).
 - Do not invent commitments, owners, dates or numbers. Leave unknowns as placeholders in square brackets, e.g. [recipient name], [your name].
-- facts: list every fact the email states, each with the exact supporting words as evidence.
-- Keep it concise: a greeting, a short recap, decisions, action items with owners/deadlines only where stated, open questions, a closing.`,
-    validate(c, _s, { transcriptText }) {
-      const before = (c.facts || []).length;
-      c.unverified = unverifiedDetails(`${c.subject}\n${c.body}`, transcriptText);
-      return before - (c.facts || []).length;
+- facts: list every fact from the meeting that the email states, each with the exact supporting words as evidence. (Things that come only from the user instructions are not listed here.)
+- Keep it concise: a greeting, the content for the goal, a closing.${userInstructions(settings)}`,
+    validate(c, _s, { transcriptText, settings }) {
+      c.unverified = unverifiedDetails(`${c.subject}\n${c.body}`, `${transcriptText} ${settings?.instructions || ''}`);
+      return 0;
     },
   },
 
@@ -296,12 +316,21 @@ Do not add tasks that would merely make sense; only ones the speakers stated. Re
       reply: str('The reply, plain text'),
       addresses: list(obj({ request: str('What the sender asked or said that the reply responds to'), evidence: evidence('it'), refs })),
     }),
-    instructions: () => `Draft a short, natural REPLY to the voice message above, for the person who received it.
+    instructions: ({ settings }) => `Draft a short, natural REPLY to the voice message above, for the person who received it.
+- What the reply should do: ${{
+    acknowledge: 'acknowledge the message warmly and briefly.',
+    confirm: 'confirm / agree to what the sender asked — without adding specifics (times, amounts) they did not ask for.',
+    question: 'ask the sender a clarifying question (or two) about what they said. The reply MUST contain at least one real question.',
+    follow_up: 'follow up on what the sender said and move it forward.',
+    decline: 'politely decline what was asked, without inventing a reason.',
+    custom: 'as described in the user instructions below.',
+  }[settings?.intent] || 'acknowledge the message warmly and briefly.'}
 - Respond to what the sender actually asked or said, in their terms. Keep their urgency and certainty exactly: "no rush" stays relaxed, "sometime tomorrow" does not become "first thing tomorrow", "maybe" stays maybe.
-- Do not promise anything the listener would have to decide (times, amounts, yes/no to a decision); leave those as placeholders in square brackets, e.g. [time], or a neutral acknowledgement.
-- addresses: the requests/points the reply responds to, each with the exact words as evidence.`,
-    validate(c, _s, { transcriptText }) {
-      c.unverified = unverifiedDetails(c.reply, transcriptText);
+- Do not promise anything the person replying would have to decide (times, amounts, yes/no to a decision) unless the user instructions say so; otherwise leave a placeholder in square brackets, e.g. [time], or stay neutral.
+- addresses: the requests/points from the message that the reply responds to, each with the exact words as evidence.${userInstructions(settings)}`,
+    validate(c, _s, { transcriptText, settings }) {
+      // details the user asked for are authorised; only flag what neither the message nor the user said
+      c.unverified = unverifiedDetails(c.reply, `${transcriptText} ${settings?.instructions || ''}`);
       return 0;
     },
   },

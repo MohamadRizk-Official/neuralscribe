@@ -15,7 +15,7 @@ const els = {
   pctNum: $('pctNum'), etaText: $('etaText'), pctBar: $('pctBar'), downloads: $('downloads'),
   resultsPanel: $('resultsPanel'), resTitle: $('resTitle'), resMeta: $('resMeta'),
   searchInput: $('searchInput'), searchCount: $('searchCount'),
-  copyBtn: $('copyBtn'), txtBtn: $('txtBtn'), srtBtn: $('srtBtn'), newBtn: $('newBtn'),
+  copyBtn: $('copyBtn'), exportBtn: $('exportBtn'), newBtn: $('newBtn'),
   timeline: $('timeline'), timelineCanvas: $('timelineCanvas'), playhead: $('playhead'), tlHover: $('tlHover'),
   speakerList: $('speakerList'), spkCount: $('spkCount'), transcript: $('transcript'),
   player: $('player'), playBtn: $('playBtn'), backBtn: $('backBtn'), fwdBtn: $('fwdBtn'), pbTime: $('pbTime'),
@@ -452,21 +452,32 @@ function pruneSpeakers() {
 const spk = (id) => state.speakers.get(id) || { name: id, color: UNKNOWN_COLOR };
 const realSpeakers = () => [...state.speakers.keys()].filter((id) => id !== UNKNOWN);
 
+let detailsOpen = false;
 function renderMeta() {
   const words = state.lines.reduce((t, l) => t + l.text.split(/\s+/).filter(Boolean).length, 0);
   const langs = 'English'; // V1 transcribes English only
-  const chips = [
+  const chip = ([k, v]) => `<span>${esc(k)} <b>${esc(v)}</b></span>`;
+  // primary: what most people want at a glance; the technical rest is one click away under "Details"
+  const primary = [['Length', fmtTime(state.duration)], ['Speakers', String(realSpeakers().length)]];
+  const details = [
     ['Mode', state.mode === 'fast' ? 'Fast' : 'Best Accuracy'],
-    ['Length', fmtTime(state.duration)],
-    ['Speakers', String(realSpeakers().length)],
     ['Language', langs],
     ['Words', words.toLocaleString()],
     ['Processed in', `${fmtDur(state.ms / 1000)} · ${state.device === 'webgpu' ? 'GPU' : 'CPU'}`],
   ];
   const unsure = state.lines.filter((l) => l.uncertain).length;
-  els.resMeta.innerHTML = chips.map(([k, v]) => `<span>${esc(k)} <b>${esc(v)}</b></span>`).join('')
+  els.resMeta.innerHTML = primary.map(chip).join('')
+    + '<span class="type-slot" id="typeSlot"></span>'
     + (state.quality ? `<button type="button" class="meta-btn q-${state.quality.rating}" data-act="quality">Audio <b>${QUALITY_LABEL[state.quality.rating]}</b></button>` : '')
-    + (unsure ? `<button type="button" class="meta-btn unsure" data-act="unsure">${unsure} part${unsure === 1 ? '' : 's'} to double-check</button>` : '');
+    + (unsure ? `<button type="button" class="meta-btn unsure" data-act="unsure">${unsure} part${unsure === 1 ? '' : 's'} to double-check</button>` : '')
+    + `<button type="button" class="meta-btn details-btn" data-act="details" aria-expanded="${detailsOpen}" aria-controls="resDetails">Details</button>`
+    + `<div class="meta-details" id="resDetails"${detailsOpen ? '' : ' hidden'}>${details.map(chip).join('')}</div>`;
+  els.resMeta.querySelector('[data-act="details"]').addEventListener('click', (e) => {
+    detailsOpen = !detailsOpen;
+    $('resDetails').hidden = !detailsOpen;
+    e.currentTarget.setAttribute('aria-expanded', String(detailsOpen));
+  });
+  try { insights.refreshType(); } catch { /* the header can render before the tabs exist; they draw it then */ }
   els.resMeta.querySelector('[data-act="quality"]')?.addEventListener('click', (e) => showQualityInfo(e.currentTarget));
   els.resMeta.querySelector('[data-act="unsure"]')?.addEventListener('click', (e) => {
     const first = els.transcript.querySelector('.seg.uncertain');
@@ -975,24 +986,14 @@ function toTxt(view = 'original') {
     return `[${fmtTime(first.start)}] ${spk(g.speaker).name}:\n${g.idx.map(text).join(' ')}`;
   }).join('\n\n') + '\n';
 }
-function toSrt() {
-  return state.lines.map((l, i) => `${i + 1}\n${srtTime(l.start)} --> ${srtTime(l.end)}\n${spk(l.speaker).name}: ${state.view === 'clean' ? lineText(i) : l.text}\n`).join('\n');
-}
 const segmentsPayload = () => toStoredSegments(state.lines, (id) => spk(id).name);
-function download(name, text) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
 const base = () => (currentFile?.name || 'transcript').replace(/\.[^.]+$/, '');
 els.copyBtn.addEventListener('click', async () => {
   const clean = state.view === 'clean';
   try { await navigator.clipboard.writeText(toTxt(state.view)); toast(clean ? 'Copied (clean version)' : 'Copied to clipboard'); } catch { toast('Copy failed — try .txt instead'); }
 });
-els.txtBtn.addEventListener('click', () => download(base() + (state.view === 'clean' ? ' (clean).txt' : '.txt'), toTxt(state.view)));
-els.srtBtn.addEventListener('click', () => download(base() + (state.view === 'clean' ? ' (clean).srt' : '.srt'), toSrt()));
+// one export system: transcript (original or clean), summary, notes and created items, in every format
+els.exportBtn.addEventListener('click', () => insights.openExport(state.view === 'clean' ? 'transcript_clean' : 'transcript'));
 
 // ---------- account: save to My Library ----------
 // Only the finished transcript text (plus title, length, language) is stored. Audio never leaves the device.
@@ -1024,6 +1025,7 @@ const insights = mountInsights({
     title: () => base(),
     createdAt: () => null,
     toast: (m) => toast(m),
+    typeSlot: () => $('typeSlot'),
   },
 });
 
@@ -1160,11 +1162,6 @@ function fmtDur(s) {
   if (s < 60) return `${s}s`;
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return h ? `${h}h ${m}m` : `${m}m ${String(sec).padStart(2, '0')}s`;
-}
-function srtTime(s) {
-  s = Math.max(0, s || 0);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60), ms = Math.floor((s % 1) * 1000);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }
 function langName(code) {
   try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code; } catch { return code; }
