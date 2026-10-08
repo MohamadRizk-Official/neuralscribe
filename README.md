@@ -1,4 +1,4 @@
-# NeuralScribe
+# SparkScribe
 
 Free, private transcription with speaker detection. Audio is processed 100% in your browser;
 signed-in users can save the finished transcript text to their account, and turn it into a summary, key points,
