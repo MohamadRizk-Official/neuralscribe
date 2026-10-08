@@ -249,6 +249,12 @@ Optional. Without the two variables below the app works exactly as before, with 
 | `ANTHROPIC_API_KEY` | Vercel (Production + Preview, Sensitive) + `.env.local` | **server only**; enables Summary / Notes / Ask / Insights |
 | `AI_MODEL`, `AI_MODEL_SUMMARY`, `AI_MODEL_INSIGHTS`, `AI_MODEL_ASK` | optional | override `claude-haiku-5-5` |
 | `AI_PROVIDER=mock` | `.env.local` only | local development without a key (ignored in production) |
+| `STRIPE_SECRET_KEY` | Vercel (Sensitive; **test key in Preview, live key in Production only**) | **server only**; `sk_test_…` / `sk_live_…` decides test vs live mode |
+| `STRIPE_WEBHOOK_SECRET` | Vercel (Sensitive, per environment) | **server only**; signing secret of that environment's webhook endpoint |
+| `STRIPE_PLUS_PRICE_ID`, `STRIPE_PRO_PRICE_ID` | Vercel (per environment) | `price_…` IDs (not secret); one per paid plan in `billing_plans` (`STRIPE_<PLAN>_PRICE_ID`) |
+| `STRIPE_PORTAL_CONFIGURATION_ID` | Vercel (per environment) | `bpc_…` Customer Portal configuration created by `scripts/stripe-setup.mjs` |
+| `BILLING_DB_SECRET` | Vercel (Sensitive) | **server only**; unlocks the database's billing write functions (only its SHA-256 is stored in the database) |
+| `APP_URL` | optional | fixed return URL origin for Stripe (defaults to the request's own SparkScribe host) |
 
 Vite is configured (`envPrefix`) to expose only `VITE_*` / `NEXT_PUBLIC_*` variables to the browser.
 **Never** put the secret / service-role key or `ANTHROPIC_API_KEY` in either prefix. Copy `.env.example` to
@@ -276,6 +282,47 @@ a trigger that creates a profile for every new auth user, indexes, column privil
   while they match the transcript's current version (`20261010000000_phase4_current_notes_only.sql`).
 - Phase 5 (`20261010010000_phase5_artifacts.sql`): `transcription_artifacts`, readable/writable only when
   `user_id = auth.uid()` and the recording is the user's; `user_id` never writable; deleted with the recording.
+- Phase 6 (`20261011000000_phase6_billing.sql` + hardening): see **Plans & billing** below.
+
+## Plans & billing (Phase 6)
+
+**Plans** live in one place, the `billing_plans` table (Free $0 / 60 min, Plus $7.99 / 20 h, Pro $14.99 / 50 h,
+stored as cents and seconds). The pricing page, account page, server and database all read it. Stripe price IDs
+differ between test and live mode, so they are server environment variables named after the plan.
+
+**What counts:** only the length of recordings transcribed while signed in (transcribing requires an account;
+Free needs no card). Opening, searching, Summary, Notes, Ask, Create tools and exports never count. Existing
+recordings are never counted: counting starts at `billing_settings.metering_starts_at`.
+
+**How it's enforced:**
+1. Before transcribing, the server (`/api/billing` `authorize`) compares the decoded audio length with the time
+   left; a recording that doesn't fit is refused before any work starts ("This recording is about 30 minutes,
+   but you have 8 minutes remaining").
+2. When the transcript is saved, a database trigger computes billable seconds (the longest of the reported
+   duration, the last line's end time and a words/4 floor), re-checks the quota under a per-user lock, and
+   writes one immutable `usage` row per transcription (unique on `transcription_id`, so a save can never be
+   counted twice). A saved recording's length can't be increased afterwards.
+3. Users can read their own `usage` and `subscriptions` rows and call `billing_status()`; they can't write
+   either table, `billing_settings`, `billing_events` or anything in the `private` schema.
+
+Transcription runs on the user's device, so recording lengths are reported by the browser. The cross-checks
+make under-reporting harder but this is not cryptographically tamper-proof; audio is never uploaded to verify it.
+
+**Periods:** Free uses the calendar month (UTC). Paid plans use Stripe's current billing period. Access by
+subscription status: `active`, `trialing`, `past_due` (Stripe still retrying) keep the paid plan; `unpaid`,
+`canceled`, `incomplete*`, `paused` fall back to Free. Cancellation is at period end; downgrades never delete data.
+
+**Stripe:** Checkout (Free → Plus/Pro) and the Customer Portal (payment method, invoices, Plus ↔ Pro with
+proration, cancel at period end) are created server-side for the signed-in user's own customer (one per
+account, linked by user id in the database and in Stripe metadata). The browser only ever sends `plus` / `pro`.
+Webhooks (`/api/stripe-webhook`) are verified with `STRIPE_WEBHOOK_SECRET`, recorded in `billing_events` for
+idempotency, and always re-read the subscription from Stripe before storing it. Events from the other mode, for
+unknown customers, or whose metadata names a different user change nothing. Test-mode subscriptions never grant
+access once `billing_settings.stripe_livemode` is true.
+
+**Setup:** `node scripts/stripe-setup.mjs --webhook-url https://<host>/api/stripe-webhook --secret-out <file>`
+creates the products, prices, portal configuration and webhook in the mode of the key in `.env.local` and prints
+the IDs to set. Before launch: `billing_settings.enforce_quota = true` and `metering_starts_at` = launch time.
 
 ### Supabase dashboard settings (one-time)
 
