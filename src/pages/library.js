@@ -9,7 +9,7 @@ import {
   PAGE_SIZE, SEARCH_PAGE_SIZE, listLibrary, searchLibrary, libraryStats, listFolders, renameTranscript, setFavorite,
   deleteTranscripts, removeFromFolder, renameFolder, deleteFolder, createFolder, highlight, fmtHours,
 } from '../lib/library.js';
-import { promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
+import { makeDialog, promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
 
 const $ = (id) => document.getElementById(id);
 const TYPES = ['lecture', 'meeting', 'voice_message', 'interview', 'podcast', 'general'];
@@ -368,9 +368,7 @@ async function bulk(action) {
 
 // ---------- per-recording menu ----------
 function recordingMenu(row) {
-  const dlg = document.createElement('dialog');
-  dlg.className = 'confirm sheet menu-dlg';
-  dlg.innerHTML = `<h3 class="menu-title">${esc(row.title)}</h3>
+  const { dlg, dismiss } = makeDialog('menu-dlg', `<h3 class="menu-title">${esc(row.title)}</h3>
     <div class="menu-list">
       <button type="button" data-m="open">Open</button>
       <button type="button" data-m="rename">Rename</button>
@@ -379,14 +377,11 @@ function recordingMenu(row) {
       ${st.folder ? `<button type="button" data-m="unfolder">Remove from “${esc(folderName(st.folder) || 'this folder')}”</button>` : ''}
       <button type="button" data-m="delete" class="danger">Delete…</button>
     </div>
-    <div class="confirm-actions"><button class="btn btn-ghost" type="button" data-m="close">Cancel</button></div>`;
-  document.body.appendChild(dlg);
-  dlg.addEventListener('close', () => setTimeout(() => dlg.remove(), 200));
+    <div class="confirm-actions"><button class="btn btn-ghost" type="button" data-m="close">Cancel</button></div>`);
   dlg.addEventListener('click', async (e) => {
-    if (e.target === dlg) return dlg.close();
     const m = e.target.closest('[data-m]')?.dataset.m;
     if (!m) return;
-    dlg.close();
+    dismiss();
     if (m === 'open') location.href = openUrl(row.id);
     else if (m === 'rename') renameRow(row);
     else if (m === 'star') toggleStar(row);
@@ -397,7 +392,6 @@ function recordingMenu(row) {
       try { await deleteTranscripts(row.id); toast('Recording deleted'); refreshStats(); refresh(); } catch (ex) { toast(ex.message || 'Delete failed'); }
     }
   });
-  dlg.showModal();
 }
 async function renameRow(row) {
   const title = await promptDialog({ title: 'Rename recording', label: 'Name', value: row.title, submit: (v) => renameTranscript(row.id, v) });

@@ -146,7 +146,7 @@ function initials(name) {
   });
 
   // Timestamps in Summary / Notes / Ask / Insights: play from there if the audio is open, otherwise show the line.
-  function seekTo(seconds, ref) {
+  function seekTo(seconds, ref, { instant = false } = {}) {
     if (player.getAttribute('src')) {
       player.currentTime = seconds;
       player.play().catch(() => {});
@@ -155,7 +155,7 @@ function initials(name) {
     ui.showTab('transcript');
     const el = $('transcript').querySelector(`.seg[data-i="${ref}"]`) || [...$('transcript').querySelectorAll('.seg')].find((p) => segments[Number(p.dataset.i)].start >= seconds);
     if (!el) return;
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.scrollIntoView({ block: 'center', behavior: instant ? 'auto' : 'smooth' });
     el.classList.remove('flash');
     void el.offsetWidth;
     el.classList.add('flash');
@@ -181,14 +181,14 @@ function initials(name) {
   });
   ui.setTranscription();
   renderTranscript();
-  // opened from a Library search result: show that line (or, for older saves, that paragraph)
+  if (coarse && segments.length) {
+    $('transcript').insertAdjacentHTML('beforebegin', '<p class="hint coarse-note">Saved before line-level timestamps were added, so links point to the start of each paragraph.</p>');
+  }
+  // opened from a Library search result: jump straight to that line (or, for older saves, that paragraph)
   if (startAt != null && segments.length) {
     const byLine = !coarse && startLine != null && segments[startLine] && Math.abs(segments[startLine].start - startAt) < 1 ? segments[startLine] : null;
     const target = byLine || [...segments].reverse().find((x) => x.start <= startAt + 0.01) || segments[0];
-    requestAnimationFrame(() => seekTo(target.start, target.id));
-  }
-  if (coarse && segments.length) {
-    $('transcript').insertAdjacentHTML('beforebegin', '<p class="hint coarse-note">Saved before line-level timestamps were added, so links point to the start of each paragraph.</p>');
+    seekTo(target.start, target.id, { instant: true });
   }
 
   $('tActions').classList.remove('hidden');

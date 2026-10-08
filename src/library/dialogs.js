@@ -4,22 +4,35 @@
 import { esc } from '../lib/account.js';
 import { listFolders, createFolder, addToFolder, removeFromFolder } from '../lib/library.js';
 
-function makeDialog(className, html) {
+// Returns { dlg, dismiss }. dismiss() closes the dialog, runs onClose exactly once and removes it. Cancel
+// buttons, Esc and a click on the backdrop all go through it, so nothing depends on the asynchronous
+// 'close' event (which a background tab may deliver late).
+export function makeDialog(className, html, onClose) {
   const dlg = document.createElement('dialog');
   dlg.className = `confirm sheet ${className}`;
   dlg.innerHTML = html;
   document.body.appendChild(dlg);
-  dlg.addEventListener('close', () => setTimeout(() => dlg.remove(), 200));
-  // click on the backdrop closes
-  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+  let closed = false;
+  const dismiss = () => {
+    if (closed) return;
+    closed = true;
+    if (dlg.open) dlg.close();
+    onClose?.();
+    setTimeout(() => dlg.remove(), 200);
+  };
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); dismiss(); }); // Esc
+  dlg.addEventListener('close', dismiss);
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dismiss(); }); // backdrop
   dlg.showModal();
-  return dlg;
+  return { dlg, dismiss };
 }
 
 // -> the new text, or null when cancelled. `validate(value)` may return an error message.
 export function promptDialog({ title, label, value = '', confirmLabel = 'Save', maxLength = 300, placeholder = '', submit }) {
   return new Promise((resolve) => {
-    const dlg = makeDialog('prompt-dlg', `
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const { dlg, dismiss } = makeDialog('prompt-dlg', `
       <form method="dialog" class="dlg-form">
         <h3>${esc(title)}</h3>
         <label class="dlg-field"><span>${esc(label)}</span>
@@ -30,15 +43,12 @@ export function promptDialog({ title, label, value = '', confirmLabel = 'Save', 
           <button class="btn btn-ghost" type="button" data-act="cancel">Cancel</button>
           <button class="btn btn-primary" type="submit">${esc(confirmLabel)}</button>
         </div>
-      </form>`);
+      </form>`, () => finish(null));
     const input = dlg.querySelector('input');
     const err = dlg.querySelector('.dlg-err');
     const okBtn = dlg.querySelector('[type=submit]');
     input.select();
-    let done = false;
-    const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    dlg.addEventListener('close', () => finish(null));
-    dlg.querySelector('[data-act=cancel]').addEventListener('click', () => dlg.close());
+    dlg.querySelector('[data-act=cancel]').addEventListener('click', dismiss);
     dlg.querySelector('form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const v = input.value.trim();
@@ -48,24 +58,23 @@ export function promptDialog({ title, label, value = '', confirmLabel = 'Save', 
         try { await submit(v); } catch (ex) { err.textContent = ex.message || String(ex); err.hidden = false; okBtn.disabled = false; return; }
       }
       finish(v);
-      dlg.close();
+      dismiss();
     });
   });
 }
 
 export function confirmDialog({ title, bodyHtml, confirmLabel = 'Confirm', danger = false }) {
   return new Promise((resolve) => {
-    const dlg = makeDialog('confirm-dlg', `
+    let result = false;
+    const { dlg, dismiss } = makeDialog('confirm-dlg', `
       <h3>${esc(title)}</h3>
       <div class="dlg-body">${bodyHtml}</div>
       <div class="confirm-actions">
         <button class="btn btn-ghost" type="button" data-act="cancel">Cancel</button>
         <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" type="button" data-act="ok">${esc(confirmLabel)}</button>
-      </div>`);
-    let result = false;
-    dlg.querySelector('[data-act=cancel]').addEventListener('click', () => dlg.close());
-    dlg.querySelector('[data-act=ok]').addEventListener('click', () => { result = true; dlg.close(); });
-    dlg.addEventListener('close', () => resolve(result));
+      </div>`, () => resolve(result));
+    dlg.querySelector('[data-act=cancel]').addEventListener('click', dismiss);
+    dlg.querySelector('[data-act=ok]').addEventListener('click', () => { result = true; dismiss(); });
     dlg.querySelector('[data-act=cancel]').focus();
   });
 }
@@ -89,7 +98,8 @@ export function folderPicker({ ids, currentIds = [], onChange }) {
   ids = [].concat(ids);
   const single = ids.length === 1;
   const member = new Set(single ? currentIds : []);
-  const dlg = makeDialog('folder-dlg', `
+  let changed = false;
+  const { dlg, dismiss } = makeDialog('folder-dlg', `
     <h3>${single ? 'Folders' : `Add ${ids.length} recordings to a folder`}</h3>
     <div class="folder-pick" aria-live="polite"><div class="lib-skel sm"></div></div>
     <form class="folder-new" autocomplete="off">
@@ -97,12 +107,12 @@ export function folderPicker({ ids, currentIds = [], onChange }) {
       <button class="btn btn-ghost btn-sm" type="submit">Create</button>
     </form>
     <p class="dlg-err" role="alert" hidden></p>
-    <div class="confirm-actions"><button class="btn btn-primary" type="button" data-act="done">Done</button></div>`);
+    <div class="confirm-actions"><button class="btn btn-primary" type="button" data-act="done">Done</button></div>`,
+  () => { if (changed) onChange?.([...member]); });
   const list = dlg.querySelector('.folder-pick');
   const err = dlg.querySelector('.dlg-err');
   const showErr = (m) => { err.textContent = m; err.hidden = !m; };
   let folders = [];
-  let changed = false;
 
   const render = () => {
     list.innerHTML = folders.length
@@ -144,8 +154,7 @@ export function folderPicker({ ids, currentIds = [], onChange }) {
       render();
     } catch (ex) { showErr(ex.message || 'Couldn’t create the folder.'); }
   });
-  dlg.querySelector('[data-act=done]').addEventListener('click', () => dlg.close());
-  dlg.addEventListener('close', () => { if (changed) onChange?.([...member]); });
+  dlg.querySelector('[data-act=done]').addEventListener('click', dismiss);
   load();
 }
 
