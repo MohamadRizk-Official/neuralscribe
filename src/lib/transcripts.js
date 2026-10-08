@@ -3,9 +3,11 @@
 // user_id is never sent from the browser — the database fills it from auth.uid().
 import { supabase } from './supabase.js';
 
-const LIST_COLUMNS = 'id, title, status, duration_seconds, language, created_at';
+const LIST_COLUMNS = 'id, title, status, duration_seconds, language, recording_type, created_at';
 
-export async function saveTranscript({ title, durationSeconds, language, text, recordingType = 'upload' }) {
+// segments: line-level transcript [{ s, e, sp, t }] (see lib/segments.js) so summaries and answers can
+// point at exact moments. recordingType: one of RECORDING_TYPES, or null when the user didn't choose.
+export async function saveTranscript({ title, durationSeconds, language, text, segments = null, recordingType = null }) {
   const { data, error } = await supabase
     .from('transcriptions')
     .insert({
@@ -13,8 +15,9 @@ export async function saveTranscript({ title, durationSeconds, language, text, r
       status: 'completed',
       duration_seconds: Number.isFinite(durationSeconds) ? Math.round(durationSeconds) : null,
       language: language || null,
-      recording_type: recordingType,
+      recording_type: recordingType || null,
       transcript_text: text,
+      segments,
     })
     .select('id')
     .single();
@@ -22,10 +25,19 @@ export async function saveTranscript({ title, durationSeconds, language, text, r
   return data.id;
 }
 
-export async function updateTranscriptText(id, text) {
-  const { data, error } = await supabase.from('transcriptions').update({ transcript_text: text }).eq('id', id).select('id');
+// Speaker renames / reassignments. The database bumps content_version when text or segments change,
+// which marks summaries made from the previous version as out of date.
+export async function updateTranscriptText(id, text, segments) {
+  const patch = { transcript_text: text };
+  if (segments) patch.segments = segments;
+  const { data, error } = await supabase.from('transcriptions').update(patch).eq('id', id).select('id');
   if (error) throw error;
   if (!data.length) throw new Error('This transcript no longer exists in your library.');
+}
+
+export async function updateRecordingType(id, recordingType) {
+  const { error } = await supabase.from('transcriptions').update({ recording_type: recordingType }).eq('id', id);
+  if (error) throw error;
 }
 
 export async function listTranscripts() {

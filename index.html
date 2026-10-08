@@ -36,7 +36,7 @@
       </a>
       <div class="topbar-right">
         <span class="chip chip-device" id="deviceChip" role="button" tabindex="0" title="Where the AI runs"><span class="dot"></span>detecting…</span>
-        <span class="chip chip-muted hide-sm" title="Audio is decoded and transcribed on this device and never uploaded. If you're signed in, the finished transcript text is saved to your account."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>audio stays on this device</span>
+        <span class="chip chip-muted hide-sm" title="Audio is decoded and transcribed on this device and never uploaded. If you're signed in, the finished transcript text is saved to your account. Summary, Notes, Ask and Insights send transcript text (never audio) to our AI provider, only when you use them."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>audio stays on this device</span>
         <div id="accountSlot"></div>
       </div>
     </header>
@@ -47,7 +47,7 @@
         <div class="hero-text">
           <div class="eyebrow mono"><span class="pulse"></span>speech intelligence · runs in your browser</div>
           <h1>Who said <span class="grad">what</span>.</h1>
-          <p>Drop a voice note, call recording, MP3 or MP4. Get a clean transcript split by speaker, free and private, processed entirely on your own device.</p>
+          <p>Drop a voice note, call recording, MP3 or MP4. Get a clean transcript split by speaker, free and private, transcribed entirely on your own device.</p>
           <ul class="pills">
             <li><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>Private by design</li>
             <li><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.4-.3 4.4 1 5 3.6"/></svg>Speaker detection</li>
@@ -115,6 +115,18 @@
                   <option value="9">9 people</option>
                   <option value="10">10 people</option>
                   <option value="off">Don't label speakers</option>
+                </select>
+              </div>
+              <div class="control">
+                <label for="recTypeSelect">Recording type</label>
+                <select id="recTypeSelect">
+                  <option value="" selected>Not set</option>
+                  <option value="general">General</option>
+                  <option value="lecture">Lecture</option>
+                  <option value="meeting">Meeting</option>
+                  <option value="interview">Interview</option>
+                  <option value="podcast">Podcast</option>
+                  <option value="voice_message">Voice Message</option>
                 </select>
               </div>
               <div class="control">
@@ -204,7 +216,9 @@
           <div class="save-bar hidden" id="saveBar" aria-live="polite"></div>
         </div>
 
-        <div class="panel timeline-card">
+        <nav id="resTabs" aria-label="Result views"></nav>
+
+        <div class="panel timeline-card" id="timelineCard">
           <div class="card-label mono">Speaker timeline <span>click to jump</span></div>
           <div class="timeline" id="timeline">
             <canvas id="timelineCanvas"></canvas>
@@ -213,16 +227,22 @@
           </div>
         </div>
 
-        <div class="res-body">
+        <div class="res-body" id="resBody">
           <aside class="panel speakers-card">
             <div class="card-label mono">Speakers <span id="spkCount"></span></div>
             <div class="speakers" id="speakerList"></div>
             <p class="hint">Rename people here. To fix a wrong label, click the name above any paragraph.</p>
           </aside>
           <div class="panel transcript-card">
+            <div class="view-toggle" role="group" aria-label="Transcript view" id="viewToggle">
+              <button type="button" class="on" data-view="original" aria-pressed="true" title="Exactly as transcribed">Original</button>
+              <button type="button" data-view="clean" aria-pressed="false" title="Easier to read: hesitations (um, uh) and repeated words removed. The original is kept.">Clean</button>
+            </div>
             <div class="transcript" id="transcript"></div>
           </div>
         </div>
+
+        <div id="insightsHost" class="insights-host"></div>
 
         <div class="playerbar" id="playerbar">
           <button class="pb-btn" id="backBtn" type="button" title="Back 10 s (←)">
@@ -257,7 +277,7 @@
     <div class="menu hidden" id="menu" role="menu"></div>
 
     <footer class="foot mono">
-      Whisper + pyannote + WeSpeaker via Transformers.js · models download once, then cached · your audio never leaves this device · when you're signed in, finished transcripts are saved to your private account
+      Whisper + pyannote + WeSpeaker via Transformers.js · models download once, then cached · your audio never leaves this device · when you're signed in, finished transcripts are saved to your private account · Summary, Notes, Ask and Insights send transcript text (never audio) to our AI provider, Anthropic, only when you use them
     </footer>
 
     <script type="module" src="/src/main.js"></script>

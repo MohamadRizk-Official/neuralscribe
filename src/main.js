@@ -1,7 +1,10 @@
 import { decodeToMono16k, peaks } from './audio.js';
 import { isConfigured } from './lib/supabase.js';
 import { mountAccountMenu, getSession } from './lib/account.js';
-import { saveTranscript, updateTranscriptText, stashPending, peekPending, clearPending } from './lib/transcripts.js';
+import { saveTranscript, updateTranscriptText, updateRecordingType, stashPending, peekPending, clearPending } from './lib/transcripts.js';
+import { toStoredSegments, RECORDING_TYPES } from './lib/segments.js';
+import { cleanText } from './lib/clean.js';
+import { mountInsights } from './insights/insights.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -23,6 +26,7 @@ const els = {
   advanced: $('advanced'), advSummary: $('advSummary'), vocabInput: $('vocabInput'),
   qualityChip: $('qualityChip'), speakersStepLabel: $('speakersStepLabel'),
   muteBtn: $('muteBtn'), volSlider: $('volSlider'),
+  recTypeSelect: $('recTypeSelect'), viewToggle: $('viewToggle'),
 };
 
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
@@ -85,7 +89,8 @@ function updateSettingsUI() {
   const sp = els.speakersSelect.value;
   const speakers = sp === 'auto' ? 'Auto speakers' : sp === 'off' ? 'No speaker labels' : els.speakersSelect.selectedOptions[0].textContent;
   const n = vocabulary().length;
-  els.advSummary.textContent = [speakers, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
+  const type = els.recTypeSelect.value ? els.recTypeSelect.selectedOptions[0].textContent : '';
+  els.advSummary.textContent = [speakers, type, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
   updateModeNote();
 }
 function updateModeNote() {
@@ -100,6 +105,7 @@ function updateModeNote() {
   els.modeNote.textContent = parts.join(' ');
 }
 [els.modelSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
+els.recTypeSelect.addEventListener('change', updateSettingsUI);
 els.modeInputs.forEach((i) => i.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
 els.vocabInput.addEventListener('input', () => { savePrefs(); updateSettingsUI(); });
 
@@ -207,6 +213,8 @@ function reset() {
   if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
   state = null; currentFile = null; run = null;
   resetSave();
+  insights.reset();
+  setView('original');
   els.searchInput.value = '';
   closeMenu();
   show(els.dropPanel);
@@ -359,7 +367,8 @@ async function start(file) {
   const q = new URLSearchParams(location.search);
   const samples = decoded.samples;
   const mode = modeValue();
-  state = { duration: decoded.duration, language: 'en', mode };
+  const recordingType = RECORDING_TYPES.includes(els.recTypeSelect.value) ? els.recTypeSelect.value : null;
+  state = { duration: decoded.duration, language: 'en', mode, recordingType, view: 'original' };
   getWorker().postMessage({
     type: 'run',
     audio: samples,
@@ -549,6 +558,30 @@ function openSpeakerMenu(anchor, id) {
 }
 
 // ---------- transcript ----------
+// Original = exactly as transcribed (always what is saved and synced). Clean = a reading view with
+// hesitations and repeated words removed by fixed rules (lib/clean.js); the original is never changed.
+const cleanCache = new Map();
+function lineText(i) {
+  const t = state.lines[i].text;
+  if (state.view !== 'clean') return t;
+  if (!cleanCache.has(t)) cleanCache.set(t, cleanText(t));
+  return cleanCache.get(t);
+}
+function setView(view) {
+  els.viewToggle.querySelectorAll('[data-view]').forEach((b) => {
+    const on = b.dataset.view === view;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  if (!state) return;
+  state.view = view;
+  if (state.lines) { const y = window.scrollY; renderTranscript(); window.scrollTo({ top: y }); }
+}
+els.viewToggle.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]');
+  if (b) setView(b.dataset.view);
+});
+
 function groups() {
   const out = [];
   state.lines.forEach((l, i) => {
@@ -578,7 +611,7 @@ function renderTranscript() {
     el.className = 'grp';
     el.dataset.sp = g.speaker;
     el.style.setProperty('--c', s.color);
-    const groupText = g.idx.map((i) => state.lines[i].text).join(' ');
+    const groupText = g.idx.map((i) => lineText(i)).join(' ');
     el.dir = isRtlText(groupText) ? 'rtl' : 'ltr';
     const first = state.lines[g.idx[0]];
     el.innerHTML = `<div class="avatar">${esc(initials(s.name))}</div>
@@ -592,10 +625,10 @@ function renderTranscript() {
       p.dataset.i = i;
       p.title = state.lines[i].uncertain ? `${fmtTime(state.lines[i].start)} · low model confidence, worth double-checking` : fmtTime(state.lines[i].start);
       if (re) {
-        const html = esc(state.lines[i].text).replace(new RegExp(escRe(esc(q)), 'gi'), (m) => { matches++; return `<mark>${m}</mark>`; });
+        const html = esc(lineText(i)).replace(new RegExp(escRe(esc(q)), 'gi'), (m) => { matches++; return `<mark>${m}</mark>`; });
         p.innerHTML = html;
       } else {
-        p.textContent = state.lines[i].text;
+        p.textContent = lineText(i);
       }
       state.segEls[i] = p;
       body.appendChild(p);
@@ -654,7 +687,8 @@ function reassign(pred, to) {
   scheduleSync();
 }
 
-// search
+// search (always searches the transcript, so it brings that tab forward)
+els.searchInput.addEventListener('focus', () => insights.showTab('transcript'));
 let searchTimer;
 els.searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
@@ -931,17 +965,20 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(
 window.addEventListener('scroll', closeMenu, { passive: true });
 
 // ---------- export ----------
-function toTxt() {
+// Exports follow the view on screen (Original or Clean). The copy saved to the library is always Original.
+function toTxt(view = 'original') {
+  const text = (i) => (view === 'clean' ? lineText(i) : state.lines[i].text);
   const names = realSpeakers().map((id) => spk(id).name).join(', ');
   const head = `${currentFile?.name || 'Transcript'}\nLength: ${fmtTime(state.duration)} · Speakers: ${names || '—'}\n\n`;
   return head + groups().map((g) => {
     const first = state.lines[g.idx[0]];
-    return `[${fmtTime(first.start)}] ${spk(g.speaker).name}:\n${g.idx.map((i) => state.lines[i].text).join(' ')}`;
+    return `[${fmtTime(first.start)}] ${spk(g.speaker).name}:\n${g.idx.map(text).join(' ')}`;
   }).join('\n\n') + '\n';
 }
 function toSrt() {
-  return state.lines.map((l, i) => `${i + 1}\n${srtTime(l.start)} --> ${srtTime(l.end)}\n${spk(l.speaker).name}: ${l.text}\n`).join('\n');
+  return state.lines.map((l, i) => `${i + 1}\n${srtTime(l.start)} --> ${srtTime(l.end)}\n${spk(l.speaker).name}: ${state.view === 'clean' ? lineText(i) : l.text}\n`).join('\n');
 }
+const segmentsPayload = () => toStoredSegments(state.lines, (id) => spk(id).name);
 function download(name, text) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
@@ -951,10 +988,11 @@ function download(name, text) {
 }
 const base = () => (currentFile?.name || 'transcript').replace(/\.[^.]+$/, '');
 els.copyBtn.addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(toTxt()); toast('Copied to clipboard'); } catch { toast('Copy failed — try .txt instead'); }
+  const clean = state.view === 'clean';
+  try { await navigator.clipboard.writeText(toTxt(state.view)); toast(clean ? 'Copied (clean version)' : 'Copied to clipboard'); } catch { toast('Copy failed — try .txt instead'); }
 });
-els.txtBtn.addEventListener('click', () => download(base() + '.txt', toTxt()));
-els.srtBtn.addEventListener('click', () => download(base() + '.srt', toSrt()));
+els.txtBtn.addEventListener('click', () => download(base() + (state.view === 'clean' ? ' (clean).txt' : '.txt'), toTxt(state.view)));
+els.srtBtn.addEventListener('click', () => download(base() + (state.view === 'clean' ? ' (clean).srt' : '.srt'), toSrt()));
 
 // ---------- account: save to My Library ----------
 // Only the finished transcript text (plus title, length, language) is stored. Audio never leaves the device.
@@ -964,11 +1002,39 @@ const CLOUD = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.5 4.
 const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17l9-10"/></svg>';
 const WARN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4m0 3v.01"/></svg>';
 
+// ---------- Summary / Notes / Ask / Insights tabs ----------
+// Built from the saved transcript (transcript text only; audio never leaves this device).
+const insights = mountInsights({
+  tabBar: $('resTabs'),
+  transcriptEls: [$('timelineCard'), $('resBody')],
+  host: $('insightsHost'),
+  ctx: {
+    getId: () => save.id,
+    isSignedIn: () => Boolean(isConfigured && session),
+    signIn: () => signInToSave(),
+    saving: () => ['saving', 'pending', 'syncing'].includes(save.status),
+    getSegments: () => (state?.lines || []).map((l, i) => ({ id: i, start: l.start, end: l.end, speaker: spk(l.speaker).name, text: l.text })),
+    seek: (t) => seek(t, true),
+    playbackTime: () => (els.player.getAttribute('src') ? els.player.currentTime || 0 : null),
+    getRecordingType: () => state?.recordingType || null,
+    setRecordingType: async (t) => { state.recordingType = t; if (save.id) await updateRecordingType(save.id, t); },
+    duration: () => state?.duration || 0,
+    autoGenerate: true, // a fresh transcription: summarize automatically once the user has turned summaries on
+  },
+});
+
+// Park the transcript in this browser, sign in, then it's saved automatically on return.
+function signInToSave() {
+  if (!stashPending(savePayload())) return toast("Couldn't hold the transcript for sign-in. Export it first.");
+  location.href = `/auth?next=${encodeURIComponent('/?save=pending')}`;
+}
+
 if (isConfigured) {
   mountAccountMenu(document.getElementById('accountSlot'), {
     onChange: (s) => {
       const signedInNow = !session && s;
       session = s;
+      insights.refresh();
       if (!state?.lines) return;
       if (signedInNow && save.status === 'signed-out') doSave(); // signed in from elsewhere: save what's on screen
       else if (!s && save.status === 'idle') autoSave();
@@ -984,7 +1050,10 @@ function resetSave() {
   els.saveBar?.classList.add('hidden');
 }
 
-const savePayload = () => ({ title: base(), durationSeconds: state.duration, language: state.language, text: toTxt() });
+const savePayload = () => ({
+  title: base(), durationSeconds: state.duration, language: state.language, text: toTxt('original'),
+  segments: segmentsPayload(), recordingType: state.recordingType || null,
+});
 
 async function autoSave() {
   if (!isConfigured || !state?.lines?.length) return;
@@ -1000,6 +1069,7 @@ async function doSave() {
   try {
     save.id = await saveTranscript(savePayload());
     save.status = 'saved';
+    insights.setTranscription();
   } catch (err) {
     save.status = 'error';
     save.error = err.message || String(err);
@@ -1021,8 +1091,9 @@ async function syncNow() {
   save.status = 'syncing';
   renderSaveBar();
   try {
-    await updateTranscriptText(save.id, toTxt());
+    await updateTranscriptText(save.id, toTxt('original'), segmentsPayload());
     save.status = 'saved';
+    insights.transcriptChanged(); // earlier summaries now show as out of date
   } catch (err) {
     save.status = 'sync-error';
     save.error = err.message || String(err);
@@ -1031,6 +1102,7 @@ async function syncNow() {
 }
 
 function renderSaveBar() {
+  insights.refresh(); // the Summary/Ask tabs depend on the transcript being saved
   const bar = els.saveBar || (els.saveBar = document.getElementById('saveBar'));
   if (!bar || !isConfigured || !state?.lines) return bar?.classList.add('hidden');
   const views = {
@@ -1048,11 +1120,7 @@ function renderSaveBar() {
   bar.className = `save-bar ${kind}`;
   bar.innerHTML = `<span class="save-icon">${icon}</span><span class="save-text">${text}</span>${action}`;
   bar.querySelector('[data-act="retry"]')?.addEventListener('click', doSave);
-  bar.querySelector('[data-act="signin"]')?.addEventListener('click', () => {
-    // Park the transcript in this browser, sign in, then it's saved automatically on return.
-    if (!stashPending(savePayload())) return toast("Couldn't hold the transcript for sign-in. Export it first.");
-    location.href = `/auth?next=${encodeURIComponent('/?save=pending')}`;
-  });
+  bar.querySelector('[data-act="signin"]')?.addEventListener('click', signInToSave);
 }
 
 // Back from signing in with a parked transcript: save it, then open it.

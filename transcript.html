@@ -35,6 +35,10 @@
           <div class="meta-chips" id="tMeta"></div>
         </div>
         <div class="res-actions hidden" id="tActions">
+          <label class="btn btn-ghost" id="attachBtn" title="Open the original audio from this device to play along. It is not uploaded.">
+            Play along
+            <input type="file" id="attachInput" accept="audio/*,video/*,.m4a,.mp3,.mp4,.wav,.ogg,.opus,.webm,.aac,.flac,.mov" hidden />
+          </label>
           <div class="btn-group">
             <button class="btn btn-ghost" id="copyBtn" type="button">Copy</button>
             <button class="btn btn-ghost" id="txtBtn" type="button">.txt</button>
@@ -43,10 +47,23 @@
         </div>
       </section>
 
-      <section class="panel transcript-card">
+      <nav id="resTabs" aria-label="Result views"></nav>
+
+      <section class="panel transcript-card" id="transcriptCard">
+        <div class="view-toggle" role="group" aria-label="Transcript view" id="viewToggle">
+          <button type="button" class="on" data-view="original" aria-pressed="true" title="Exactly as transcribed">Original</button>
+          <button type="button" data-view="clean" aria-pressed="false" title="Easier to read: hesitations (um, uh) and repeated words removed. The original is kept.">Clean</button>
+        </div>
         <div class="transcript" id="transcript"><div class="lib-skel"></div><div class="lib-skel"></div></div>
       </section>
+
+      <div id="insightsHost" class="insights-host"></div>
     </main>
+
+    <div class="attach-bar hidden" id="attachBar">
+      <audio id="attachPlayer" controls preload="metadata"></audio>
+      <button class="icon-btn" id="attachClose" type="button" title="Close player" aria-label="Close player"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
 
     <dialog class="confirm" id="confirmDlg">
       <form method="dialog">
