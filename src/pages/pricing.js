@@ -28,55 +28,35 @@ function buttonFor(p) {
   return `<button class="btn btn-primary" type="button" data-plan="${esc(p.key)}"${busy ? ' disabled' : ''}>${busy === p.key ? 'Opening secure checkout…' : label}</button>`;
 }
 
-// Marketing copy per plan (presentation only). Names, prices and allowances always come from billing_plans;
-// every plan has the same features, so the copy only describes who it suits and how much time it includes.
+// Card copy per plan (presentation only). Names, prices and allowances always come from billing_plans; every
+// plan has the same features, so cards only say who a plan suits. "{more}" becomes "20× more transcription",
+// computed from the allowances. The full feature list lives once, in "Every plan includes".
 const CARD_COPY = {
-  // items: always shown; extra: shown on wider screens (phones get the shared "Every plan includes" list below)
-  free: {
-    tag: 'For getting started',
-    items: ['AI Summary, organized Notes and Ask', 'Study guides, flashcards, quizzes and drafts', 'No card required'],
-    extra: ['Private, searchable Library', 'PDF, Word and Markdown exports'],
-  },
-  plus: {
-    tag: 'For classes, meetings & everyday use',
-    badge: 'Recommended',
-    items: ['Study Guides, Flashcards & Quizzes', 'Meeting Recaps, Action Plans & Drafts', 'Manage or cancel anytime'],
-    extra: ['Searchable recording Library', 'PDF, Word & Markdown exports'],
-  },
-  pro: {
-    tag: 'For heavy recording & serious workflows',
-    items: ['Room for long lectures, interviews and back-to-back meetings', 'Every AI and Create tool', 'Manage or cancel anytime'],
-    extra: ['A searchable personal knowledge Library'],
-  },
+  free: { tag: 'For getting started', items: ['Full AI workspace', 'Searchable private Library', 'Summaries, Notes & Ask', 'Study & productivity tools', 'Exports'] },
+  plus: { tag: 'For everyday use', badge: 'Recommended', items: ['Everything in {prev}', '{more}', 'Great for classes & meetings', 'Full Create tools', 'Cancel anytime'] },
+  pro: { tag: 'For heavy recording', items: ['Everything in {prev}', '{more}', 'Built for long lectures & meetings', 'Full AI workspace', 'Cancel anytime'] },
 };
 
-// 3600 -> {num: "60", unit: "minutes"}, 72000 -> {num: "20", unit: "hours"}
+// 3600 -> {num: "60", unit: "min"}, 72000 -> {num: "20", unit: "hr"}
 function allowanceParts(seconds) {
   const h = seconds / 3600;
-  if (h >= 2) return { num: String(Math.round(h * 10) / 10), unit: 'hours' };
-  return { num: String(Math.round(seconds / 60)), unit: 'minutes' };
+  return h >= 2 ? { num: String(Math.round(h * 10) / 10), unit: 'hr' } : { num: String(Math.round(seconds / 60)), unit: 'min' };
 }
-const times = (a, b) => `${Math.round((a / b) * 10) / 10}×`;
+const ratio = (a, b) => `${Math.round((a / b) * 10) / 10}×`;
 
 function render(plans) {
   $('plans').innerHTML = plans.map((p, i) => {
     const copy = CARD_COPY[p.key] || { tag: p.tagline, items: [] };
     const prev = plans[i - 1];
-    const lead = prev ? `Everything in ${esc(prev.name)}, with <b>${esc(times(p.monthly_seconds, prev.monthly_seconds))}</b> the transcription time` : 'The full SparkScribe AI workspace';
+    const items = copy.items.map((t) => (prev ? t.replace('{prev}', prev.name).replace('{more}', `${ratio(p.monthly_seconds, prev.monthly_seconds)} more transcription`) : t));
     const a = allowanceParts(p.monthly_seconds);
     return `
     <article class="plan-card${copy.badge ? ' featured' : ''}${status?.plan === p.key ? ' current' : ''}">
-      <header class="plan-head">
-        <div class="plan-title"><h2>${esc(p.name)}</h2>${copy.badge ? `<span class="plan-badge">${esc(copy.badge)}</span>` : ''}</div>
-        <p class="plan-tag">${esc(copy.tag)}</p>
-      </header>
-      <div class="plan-price"><span class="amt">${esc(price(p))}</span><span class="per">${esc(perInterval(p))}</span></div>
-      <div class="plan-allow${p.billing_interval ? ' hours' : ''}">
-        <span class="num">${esc(a.num)}</span><span class="unit">${esc(a.unit)}</span><span class="of">of transcription<br />per month</span>
-      </div>
-      <p class="plan-lead">${lead}</p>
-      <ul class="plan-list">${[...copy.items.slice(0, -1).map((t) => [t, '']), ...(copy.extra || []).map((t) => [t, ' class="x"']), ...copy.items.slice(-1).map((t) => [t, ''])].map(([t, c]) => `<li${c}>${esc(t)}</li>`).join('')}</ul>
-      <a class="plan-more" href="#inclTitle">See everything included ↓</a>
+      <div class="plan-title"><h2>${esc(p.name)}</h2>${copy.badge ? `<span class="plan-badge">${esc(copy.badge)}</span>` : ''}</div>
+      <p class="plan-tag">${esc(copy.tag)}</p>
+      <div class="plan-price"><span class="amt">${esc(price(p))}</span>${p.billing_interval ? `<span class="per">${esc(perInterval(p))}</span>` : ''}</div>
+      <div class="plan-allow"><span class="num">${esc(a.num)}</span><span class="unit">${esc(a.unit)}</span><span class="of">/ month</span></div>
+      <ul class="plan-list">${items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
       <div class="plan-cta">${buttonFor(p)}</div>
     </article>`;
   }).join('');
