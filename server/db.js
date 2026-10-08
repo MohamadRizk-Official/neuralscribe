@@ -102,7 +102,7 @@ export function supabaseStore(sb) {
       return data;
     },
     async findAnswer(transcriptionId, normalized, version, norm) {
-      const { data, error } = await sb.from('transcription_questions').select('id, question, answer, refs, found')
+      const { data, error } = await sb.from('transcription_questions').select('id, question, answer, refs, found, created_at')
         .eq('transcription_id', transcriptionId).eq('source_version', version).order('created_at', { ascending: false }).limit(100);
       check(error, 'load questions');
       return data.find((q) => norm(q.question) === normalized) || null;

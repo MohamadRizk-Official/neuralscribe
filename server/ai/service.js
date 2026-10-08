@@ -260,6 +260,9 @@ export async function generate(db, { transcriptionId, kind, recordingType, force
   }
 }
 
+// Answers saved before the current Ask rules (Phase 5.6) stay in the history but are not reused for a repeated
+// question: asking again gets an answer under the current rules.
+const ASK_RULES_SINCE = Date.parse('2026-10-08T19:00:00Z');
 const normQuestion = (q) => q.toLowerCase().replace(/\s+/g, ' ').replace(/[?.!\s]+$/, '').trim();
 const INTENTS = [
   [/\b(decid|decision|agree|final|settled|go with)/i, ['decisions']],
@@ -300,11 +303,10 @@ export async function askTranscript(db, { transcriptionId, question, at = null, 
   const followUp = history.length > 0 && isFollowUp(question);
 
   // the same question about the same version of the transcript: answer from storage, no model call.
-  // Not for follow-ups ("Why?" depends on what came before), and not for the generic "not found" reply
-  // older versions gave: asking again gets a real answer.
+  // Not for follow-ups ("Why?" depends on what came before), and not for answers saved under older rules.
   if (!deictic && !followUp) {
     const prev = await db.findAnswer(transcriptionId, normQuestion(question), version, normQuestion);
-    if (prev && !isNotFound(prev.answer)) {
+    if (prev && !isNotFound(prev.answer) && Date.parse(prev.created_at) >= ASK_RULES_SINCE) {
       emit({ type: 'cached' });
       meter.finish({ cached: true });
       return { id: prev.id, question: prev.question, answer: prev.answer, refs: prev.refs, found: prev.found, cached: true };
