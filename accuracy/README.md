@@ -48,6 +48,23 @@ speech, to catch false speaker changes; two- and three-speaker items include sho
 powershell -ExecutionPolicy Bypass -File accuracy/synthetic/generate.ps1
 ```
 
+### "Never invent words" regression set
+
+`accuracy/regression/` builds 14 recordings that check the engine never turns non-speech into text and never
+manufactures repetitions: silence, background noise, tapping, humming, "mmm" thinking sounds, a legitimate
+"no, no, no", an emphasised "very, very", low-volume speech, speech followed by 20 s of silence, a 15 s pause
+before speech, noise while speaking, speech followed by tapping, and speech followed by humming. Non-speech has
+an empty reference, so every word output there counts as an insertion.
+
+```
+powershell -ExecutionPolicy Bypass -File accuracy/regression/generate.ps1
+```
+
+Load `/accuracy/testset/regression/` in the lab. Real recordings that once failed (e.g. a voice note that produced
+"so, so, so…") belong in `accuracy/testset/private/` (git-ignored) with a reference written by the speaker.
+The lab can pass `trace: true` in a configuration to record every decoding attempt per clip (text, avg
+log-prob, compression, no-speech probability, loop cuts) and the text before/after overlap merging.
+
 TTS speech is far easier than real speech, so absolute numbers are **not** real-world accuracy. Use it to catch
 regressions and to compare settings (chunking, preprocessing, important words, models).
 

@@ -1,0 +1,112 @@
+{
+  "issue": "Real 51 s WhatsApp voice note (Best Accuracy, 1 speaker, English, GPU) produced 'so, so, so…' (32x) and 'm m m…' (85x) after the last real words of two clips.",
+  "rootCause": "Transformers.js generate() keeps stepping rows that already emitted <|endoftext|> until the whole batch is done (no padding of finished rows). decodeBatch decoded every token after the prompt with skip_special_tokens, so whatever whisper-large-v3-turbo produced AFTER its end-of-text became transcript. Present since Phase 1 (batch_decode of whole rows); exposed when commit 77684ec (diarization fixes) merged the one-speaker audio into 22.9 s + 25 s turns batched together with a 1.1 s clip.",
+  "proof": {
+    "sameFile_sameSettings_oldReading": "turn 0: 'so' x32, turn 1: 'm' x85, turn 2: 'I hope so' x27 (exactly the reported output)",
+    "sameFile_onlyChange_stopAtEndOfText": "no repetition"
+  },
+  "testSetNote": "Reference for the voice note is PROVISIONAL (consensus of engine outputs, not yet confirmed by the speaker). Inserted-loop-word counts do not depend on it.",
+  "whatsapp51": {
+    "before_main_77684ec_Best": {
+      "wer": 76,
+      "S": 0,
+      "D": 0,
+      "I": 117,
+      "N": 154,
+      "loopWordsInserted": 117
+    },
+    "before_main_77684ec_firstPassOnly": {
+      "wer": 127.3,
+      "I": 196,
+      "loopWordsInserted": 196
+    },
+    "phase2_before_diarization_fix_Best": {
+      "wer": 5.8,
+      "S": 5,
+      "D": 1,
+      "I": 3
+    },
+    "after_Best_x3_runs_incl_auto_speakers": {
+      "wer": 0,
+      "I": 0,
+      "loopWordsInserted": 0,
+      "loopsCut": 0,
+      "note": "0% is relative to a reference derived mostly from this output"
+    },
+    "after_Fast": {
+      "wer": 7.8,
+      "S": 7,
+      "D": 4,
+      "I": 1,
+      "loopWordsInserted": 0
+    },
+    "speakers": "1 speaker, 100% (unchanged)"
+  },
+  "regressionSet_14_items": {
+    "items": "silence, background noise, tapping, humming, mmm thinking sounds, no-no-no, very-very, low volume, speech+20s silence, 15s pause+speech, noise while speaking (~5 dB SNR), speech+taps, speech+hum",
+    "before_main_Best_1spk": {
+      "inserted": 1,
+      "note": "\"you\" after humming"
+    },
+    "before_main_Fast_1spk": {
+      "inserted": 1,
+      "note": "\"you\" after humming"
+    },
+    "after_Best_1spk": {
+      "inserted": 0,
+      "substituted": 0,
+      "deleted": 0,
+      "droppedAsNoSpeech": 2
+    },
+    "after_Best_auto": {
+      "inserted": 0,
+      "substituted": 0,
+      "deleted": 0,
+      "droppedAsNoSpeech": 3
+    },
+    "after_Fast_1spk": {
+      "inserted": 0,
+      "substituted": 0,
+      "deleted": 0,
+      "droppedAsNoSpeech": 2
+    },
+    "after_Fast_auto": {
+      "inserted": 2,
+      "note": "thinking_sounds: \"Oh... Oh...\" for the synthetic hum (speaker detection labels the hum as a separate voice; Whisper base writes two words) — known remaining case"
+    },
+    "emphasisKept": "\"No, no, no\" and \"very, very important\" transcribed as said in all 4 configurations"
+  },
+  "synthetic_19_items_auto_speakers": {
+    "before_main_Best": {
+      "wer": 2.8,
+      "S": 37,
+      "D": 26,
+      "I": 6,
+      "N": 2440,
+      "speakersRight": "18/19"
+    },
+    "after_Best": {
+      "wer": 2.87,
+      "S": 38,
+      "D": 26,
+      "I": 6,
+      "N": 2440,
+      "speakersRight": "18/19",
+      "note": "final engine incl. single-word rule"
+    },
+    "previous_Fast": {
+      "wer": 8.5
+    },
+    "after_Fast": {
+      "wer": 8.52,
+      "S": 124,
+      "D": 53,
+      "I": 31,
+      "N": 2440,
+      "speakersRight": "18/19",
+      "note": "final engine incl. single-word rule: 1 low-confidence word dropped in two_speakers_clean__very_noisy (-3 dB SNR)"
+    },
+    "interjectionsKept": "\"Right.\", \"Yeah.\"/\"Yet.\", \"Okay.\" still transcribed in two_speakers_interjections"
+  },
+  "device": "WebGPU (laptop GPU), accuracy lab (static build)"
+}

@@ -21,7 +21,7 @@ is never uploaded. Models download once from Hugging Face and are cached by the 
 | **Best Accuracy** (default) | Whisper large-v3-turbo, 4-bit weights / fp16 maths (`q4f16`, ≈565 MB) | Whisper small (8-bit) | second pass on segments Whisper is unsure about |
 
 Advanced settings can override the model (tiny / base / small / large-v3-turbo). large-v3-turbo is GPU-only: on a
-CPU it needed 2½ minutes just to detect the language of three short clips. The `q4f16` turbo weights were chosen by
+CPU it needed 2½ minutes just to process three short clips. The `q4f16` turbo weights were chosen by
 measurement: 1.0 % vs 0.9 % WER for the 1.6 GB fp16 version on the synthetic set, at a third of the download.
 
 ### Pipeline
@@ -50,20 +50,29 @@ measurement: 1.0 % vs 0.9 % WER for the 1.6 GB fp16 version on the synthetic set
      With a chosen speaker count, such groups fill only the missing speaker slots.
    - **Unknown** is kept only where the evidence is genuinely insufficient: a voice ≥ 0.5 s that matches no
      speaker and no consistent group. It is never hidden in the transcript.
-4. **Chunk** into speaker turns (silence skipped). Turns longer than 27.5 s are split at the quietest 300 ms between
-   16 s and 27.5 s; if even that is speech, both pieces share 1 s of audio and the words transcribed twice are removed
-   afterwards (`src/engine/merge.js`). Every segment keeps its original start/end time.
-5. **Language** — fixed if the user picks one. On Auto-detect, Whisper's language probabilities are read for up to
-   8 clips spread across the file and weighted by length. If a second language holds a real share (≥ 15 %, or one
-   clip ≥ 3 s that is clearly in it, e.g. Arabic + English), each turn may choose among those languages only, and
-   the task is forced to *transcribe* (never translate).
-6. **Transcribe** turns in batches with Whisper. *Important words* become a Whisper prompt
-   (`<|startofprev|>` + the words), the same mechanism as OpenAI's `initial_prompt`.
+4. **Chunk** into speaker turns (silence skipped). Recognised speech and "only loud" stretches the speech detector
+   did not recognise as a voice (tapping, noise, breath — or a missed word) are never merged into one clip; the loud
+   stretches are transcribed separately and must pass the no-speech check. Turns longer than 27.5 s are split at the
+   quietest 300 ms between 16 s and 27.5 s; if even that is speech, both pieces share 1 s of audio and the words
+   transcribed twice are removed afterwards (`src/engine/merge.js`). Every segment keeps its original start/end time.
+5. **English only (V1).** Every clip is decoded with `<|en|>` + `<|transcribe|>`: English speech → English text.
+   No language detection, never Whisper's *translate* task.
+6. **Transcribe** turns in batches with Whisper, each clip under `WhisperControl` (`src/engine/decoding.js`):
+   - output is read only up to that clip's `<|endoftext|>` (Transformers.js keeps stepping finished rows until the
+     whole batch is done — reading past the end is what once produced "so, so, so…" / "m m m…");
+   - Whisper's **no-speech probability** (`<|nospeech|>` after `<|startoftranscript|>`) is recorded; a clip with
+     no-speech > 0.6 and avg log-prob < −1.0 (OpenAI's rule), or a "loud only" clip with no-speech > 0.5, gives no text;
+   - a **token budget** from the clip's own length (7 tokens/s + 12) instead of the batch's longest clip;
+   - a **loop guard**: a single token repeated 8+ times or a 2–8 token unit repeated 6+ times stops the clip, and
+     the run is removed (`src/engine/loops.js`; one copy of a repeated phrase is kept, none of a repeated filler).
+     Emphasis like "no, no, no" or "very, very important" is far below these limits and kept as said.
+   *Important words* become a Whisper prompt (`<|startofprev|>` + the words), like OpenAI's `initial_prompt`.
+   No previous-text context is carried between clips, so one bad clip cannot poison the next.
 7. **Second pass (Best Accuracy)** — for each turn, Whisper's own average token log-probability and the text's
-   compression ratio are recorded (`src/engine/decoding.js`). Turns below −1.0 avg log-prob, above 2.4 compression
-   (repetition), hitting the token limit, or that look like the important-words prompt leaking into a short clip are
-   retried (without the prompt, then sampling at temperature 0.2 and 0.5); a retry is kept only if it scores better.
-   Turns still below the threshold are marked "worth double-checking" in the transcript. No percentages are shown.
+   compression ratio are recorded. Turns below −1.0 avg log-prob, above 2.4 compression, stopped by the loop guard
+   or the token budget, or that look like the important-words prompt leaking into a short clip are retried (without
+   the prompt, then sampling at temperature 0.2 and 0.5); a retry is kept only if it is loop-free and scores better.
+   Turns still below the threshold, or where a loop was cut, are marked "worth double-checking". No percentages.
 
 Long recordings (15+ minutes) and unusual formats are converted with FFmpeg compiled to WebAssembly
 (`public/ffmpeg/`, one-time ~32 MB download).
@@ -71,7 +80,7 @@ Long recordings (15+ minutes) and unusual formats are converted with FFmpeg comp
 ### Known limitations
 
 - Whisper sees one speaker turn at a time (≤ 30 s), without the previous turn's text as context.
-- Language is chosen per turn, so a switch *inside* one turn (code-switching mid-sentence) is transcribed in one language.
+- English only in V1: speech in other languages is not supported (and is never translated).
 - Important words are a hint, not a guarantee, and very long word lists are trimmed to the last ~100 tokens.
 - Speaker detection can merge similar voices or split one voice; it can be fixed by hand in the transcript.
 - The audio-quality check cannot detect echo/reverb or overlapping speakers.
