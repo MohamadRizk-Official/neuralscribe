@@ -39,7 +39,8 @@ export function toText(doc) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
-const mdEsc = (s) => String(s).replace(/([\\`*_[\]#|<>])/g, '\\$1');
+// escape only what Markdown would actually turn into formatting
+const mdEsc = (s) => String(s).replace(/([\\`*_|<>])/g, '\\$1').replace(/^([#>+-]|\d+\.)(\s)/, '\\$1$2');
 export function toMarkdown(doc) {
   const out = [`# ${mdEsc(doc.title)}`, '', ...doc.meta.map((m) => `*${mdEsc(m)}*  `), ''];
   for (const s of doc.sections) {
@@ -93,6 +94,8 @@ export async function toPdf(doc) {
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
   const M = 56, W = pdf.internal.pageSize.getWidth() - M * 2, H = pdf.internal.pageSize.getHeight();
   let y = M;
+  // a heading never sits alone at the bottom of a page
+  const keepWithNext = (size) => { if (y + size * 4.5 > H - M) { pdf.addPage(); y = M; } };
   const write = (text, { size = 11, bold = false, italic = false, color = [20, 24, 40], indent = 0, gap = 4, lead = 1.35 } = {}) => {
     pdf.setFont('helvetica', bold && italic ? 'bolditalic' : bold ? 'bold' : italic ? 'italic' : 'normal');
     pdf.setFontSize(size);
@@ -109,10 +112,11 @@ export async function toPdf(doc) {
   y += 8;
   for (const s of doc.sections) {
     y += 8;
+    keepWithNext(15);
     write(s.heading, { size: 15, bold: true, gap: 6 });
     for (const b of s.blocks) {
       const t = withTime(b);
-      if (b.t === 'h') write(b.text, { size: 12.5, bold: true, gap: 3 });
+      if (b.t === 'h') { keepWithNext(12.5); write(b.text, { size: 12.5, bold: true, gap: 3 }); }
       else if (b.t === 'li') write(`•  ${t}`, { indent: 10, gap: 2 });
       else if (b.t === 'quote') write(t, { italic: true, indent: 16, color: [60, 60, 80] });
       else if (b.t === 'meta') write(t, { italic: true, size: 10, color: [100, 100, 110] });

@@ -229,7 +229,7 @@ export function createToolsUI(api) {
         <button class="btn btn-ghost btn-sm" type="button" data-act="copy">Copy</button>
         <button class="btn btn-ghost btn-sm" type="button" data-act="export">Export…</button>
         ${!stale && !busy ? '<button class="btn btn-ghost btn-sm" type="button" data-act="regen-confirm">Regenerate</button>' : ''}
-        <button class="btn btn-ghost btn-sm tool-del" type="button" data-act="delete">Delete this ${esc(info.label.toLowerCase())}</button>
+        <button class="btn btn-ghost btn-sm tool-del" type="button" data-act="delete">Delete ${esc(info.label)}</button>
       </div>`;
     } else if (!busy && !err) {
       html += `<div class="ins-intro-row"><p>${esc(info.desc)}${info.sized ? ` <span class="ins-sub">(${esc(SIZE_LABEL[ui.size].toLowerCase())} size)</span>` : ''}</p>
