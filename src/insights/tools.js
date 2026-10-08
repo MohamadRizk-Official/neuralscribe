@@ -402,12 +402,12 @@ export function createToolsUI(api) {
     p.querySelector('[data-act="create"]')?.addEventListener('click', () => api.generate(kind, settings, false));
     p.querySelectorAll('[data-act="regen"]').forEach((b) => b.addEventListener('click', () => api.generate(kind, settings, true)));
     p.querySelector('[data-act="regen-confirm"]')?.addEventListener('click', async () => {
-      if (await api.confirm(`Create a new ${info.label.toLowerCase()}?`, 'This replaces the current one with a newly generated version.', 'Regenerate')) api.generate(kind, settings, true);
+      if (await api.confirm(`Regenerate ${info.label}?`, 'This replaces the current version with a newly generated one.', 'Regenerate')) api.generate(kind, settings, true);
     });
     p.querySelector('[data-act="copy"]')?.addEventListener('click', () => api.copy(blocksToText(artifactBlocks(kind, a.content, api.timeOf)), info.label));
     p.querySelector('[data-act="export"]')?.addEventListener('click', () => api.openExport(`tool:${kind}:${key}`));
     p.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
-      if (await api.confirm(`Delete this ${info.label.toLowerCase()}?`, 'Only this created item is removed. The recording, its transcript and everything else stay.', 'Delete', true)) api.remove(a);
+      if (await api.confirm(`Delete ${info.label}?`, 'Only this created item is removed. The recording, its transcript and everything else stay.', 'Delete', true)) api.remove(a);
     });
 
     // flashcards
