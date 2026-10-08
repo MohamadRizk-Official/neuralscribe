@@ -8,7 +8,7 @@ import { AIError } from '../server/ai/provider.js';
 
 export default async function handler(req, res) {
   try {
-    const { db } = await authenticate(req);
+    const { db, user } = await authenticate(req);
     if (req.method === 'GET') {
       const id = new URL(req.url, 'http://x').searchParams.get('transcriptionId');
       if (!isUuid(id)) throw new AIError('Invalid transcript.', { status: 400, code: 'bad_request' });
@@ -19,6 +19,7 @@ export default async function handler(req, res) {
       if (!isUuid(body.transcriptionId)) throw new AIError('Invalid transcript.', { status: 400, code: 'bad_request' });
       const out = await generate(db, {
         transcriptionId: body.transcriptionId, kind: String(body.kind || ''), recordingType: body.recordingType, force: body.force === true,
+        userId: user.id,
       });
       return sendJson(res, 200, out);
     }

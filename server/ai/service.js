@@ -15,6 +15,7 @@
 //   * Ask sends only the relevant excerpts of long transcripts, and repeated questions are answered from
 //     the stored answer.
 import { getProvider, taskConfig, AIError } from './provider.js';
+import { createMeter } from './usage.js';
 import { ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
 import { groundStructured, groundChapters, groundAnswer } from './grounding.js';
 import { selectContext, needsRetrieval, formatExcerpts } from './retrieve.js';
@@ -49,21 +50,21 @@ function parts(segments) {
 const userMessage = (header, segs, instructions) => ({
   role: 'user',
   content: [
-    // the transcript block comes first and is marked cacheable, so a second analysis of the same
-    // transcript within a few minutes reads it from the prompt cache at a fraction of the price
-    { type: 'text', text: `${header}\n<transcript>\n${segs.map(modelLine).join('\n')}\n</transcript>`, cache_control: { type: 'ephemeral' } },
+    // No prompt caching: each analysis uses a different output schema, which changes the cached prefix, so
+    // in testing cache writes (+25% input price) were never read back.
+    { type: 'text', text: `${header}\n<transcript>\n${segs.map(modelLine).join('\n')}\n</transcript>` },
     { type: 'text', text: instructions },
   ],
 });
 
 // One structured analysis over the whole transcript (map-reduce when it doesn't fit one prompt).
-async function analyze({ task, schema, instructions, row, segments }) {
+async function analyze({ task, schema, instructions, row, segments, meter }) {
   const ai = getProvider();
   const cfg = taskConfig(task);
   const header = transcriptHeader(row, segments);
   const usage = { input: 0, output: 0 };
   const run = async (segs, extra = '') => {
-    const r = await ai.complete({ task, ...cfg, system: ANALYST_SYSTEM, schema, messages: [userMessage(header, segs, instructions + extra)] });
+    const r = await meter.call(task, () => ai.complete({ task, ...cfg, system: ANALYST_SYSTEM, schema, messages: [userMessage(header, segs, instructions + extra)] }));
     usage.input += r.usage.input; usage.output += r.usage.output;
     return r;
   };
@@ -79,33 +80,34 @@ async function analyze({ task, schema, instructions, row, segments }) {
     partial.push(r.json);
   }
   const reduce = taskConfig('reduce');
-  const r = await ai.complete({
+  const r = await meter.call(`${task}:merge`, () => ai.complete({
     task, ...reduce, system: ANALYST_SYSTEM, schema,
     messages: [{ role: 'user', content: `${header}\nA long recording was analysed in ${chunks.length} consecutive parts. Merge these partial results into one result for the whole recording, following the same instructions. Keep the line-number refs exactly as given (they refer to the full transcript), remove duplicates, and keep the most important items.\n\nInstructions for the result:\n${instructions}\n\nPartial results in order:\n${partial.map((p, i) => `<part n="${i + 1}">\n${JSON.stringify(p)}\n</part>`).join('\n')}` }],
-  });
+  }));
   usage.input += r.usage.input; usage.output += r.usage.output;
   return { json: r.json, model: r.model, usage };
 }
 
-async function generateOverview(row, segments) {
+async function generateOverview(row, segments, _type, meter) {
   const minutes = (row.duration_seconds || segments.at(-1)?.end || 0) / 60;
   const withChapters = minutes >= CHAPTER_MIN_MINUTES && segments.length >= 6;
-  const r = await analyze({ task: 'overview', schema: OVERVIEW_SCHEMA, instructions: overviewInstructions({ minutes, withChapters }), row, segments });
+  const r = await analyze({ task: 'overview', schema: OVERVIEW_SCHEMA, instructions: overviewInstructions({ minutes, withChapters }), row, segments, meter });
   const { content, dropped } = groundStructured({ short_summary: r.json.short_summary, key_points: r.json.key_points }, segments);
+  const rawChapters = withChapters ? (r.json.chapters || []).length : 0;
   content.chapters = withChapters ? groundChapters(r.json.chapters, segments) : [];
-  return { ...r, content, dropped };
+  return { ...r, content, dropped: dropped + Math.max(0, rawChapters - content.chapters.length) };
 }
 
-async function generateDetailedSummary(row, segments, type) {
-  const r = await analyze({ task: 'detailed_summary', schema: DETAILED_SCHEMA, instructions: detailedInstructions(type), row, segments });
+async function generateDetailedSummary(row, segments, type, meter) {
+  const r = await analyze({ task: 'detailed_summary', schema: DETAILED_SCHEMA, instructions: detailedInstructions(type), row, segments, meter });
   const { content, dropped } = groundStructured(r.json, segments);
   content.sections = content.sections.filter((s) => s.points.length);
   return { ...r, content, dropped };
 }
 
-async function generateInsights(row, segments, type) {
+async function generateInsights(row, segments, type, meter) {
   const spec = INSIGHT_SPECS[type] || INSIGHT_SPECS.general;
-  const r = await analyze({ task: `insights:${type}`, schema: spec.schema, instructions: spec.instructions, row, segments });
+  const r = await analyze({ task: `insights:${type}`, schema: spec.schema, instructions: spec.instructions, row, segments, meter });
   const { content, dropped } = groundStructured(r.json, segments);
   return { ...r, content, dropped };
 }
@@ -144,29 +146,34 @@ export async function getState(db, transcriptionId) {
 }
 
 // Generate (or return the stored) result of one kind.
-export async function generate(db, { transcriptionId, kind, recordingType, force = false }) {
+export async function generate(db, { transcriptionId, kind, recordingType, force = false, userId = null }) {
   if (!KINDS.includes(kind)) throw new AIError('Unknown analysis.', { status: 400, code: 'bad_request' });
   const type = kind === 'overview' ? 'general' : normalizeRecordingType(recordingType);
+  const meter = createMeter({ feature: kind === 'overview' ? 'overview' : `${kind}:${type}`, transcriptionId, userId });
   const { row, segments } = await loadTranscript(db, transcriptionId);
   const version = row.content_version;
+  const fromStorage = (insight) => { meter.finish({ cached: true }); return { insight: publicInsight(insight), cached: true }; };
 
   const existing = await db.getInsight(transcriptionId, kind, type);
   if (existing) {
     const fresh = existing.source_version === version;
-    if (existing.status === 'ready' && fresh && !force) return { insight: publicInsight(existing), cached: true };
+    if (existing.status === 'ready' && fresh && !force) return fromStorage(existing);
     if (existing.status === 'generating' && Date.now() - new Date(existing.updated_at).getTime() < GENERATING_TIMEOUT_MS) {
-      return { insight: publicInsight(existing), cached: true }; // someone else is already generating it
+      return fromStorage(existing); // someone else is already generating it
     }
   }
   const claimed = await db.startInsight(existing, { transcriptionId, kind, recordingType: type, version });
-  if (!claimed) return { insight: publicInsight(await db.getInsight(transcriptionId, kind, type)), cached: true };
+  if (!claimed) return fromStorage(await db.getInsight(transcriptionId, kind, type));
 
   try {
-    const r = await GENERATORS[kind](row, segments, type);
+    const r = await GENERATORS[kind](row, segments, type, meter);
     const saved = await db.finishInsight(claimed.id, { content: r.content, model: r.model, usage: r.usage });
+    // "passed" = every item the model returned pointed at real lines (nothing had to be dropped)
+    meter.finish({ groundingPassed: r.dropped === 0, droppedItems: r.dropped });
     return { insight: publicInsight(saved), cached: false, dropped: r.dropped };
   } catch (err) {
     const message = err instanceof AIError ? err.message : 'Analysis failed.';
+    meter.finish({ error: message });
     await db.failInsight(claimed.id, message).catch(() => {});
     throw err instanceof AIError ? err : new AIError(message);
   }
@@ -196,18 +203,20 @@ function intentRefs(question, insights) {
 }
 
 // Grounded Q&A. Streams { delta } events through `emit`, then resolves with the stored answer.
-export async function askTranscript(db, { transcriptionId, question, at = null }, emit) {
+export async function askTranscript(db, { transcriptionId, question, at = null, userId = null }, emit) {
   question = String(question || '').trim().slice(0, 500);
   if (!question) throw new AIError('Type a question first.', { status: 400, code: 'bad_request' });
   const { row, segments } = await loadTranscript(db, transcriptionId);
   const version = row.content_version;
   const deictic = at != null && /\b(this|here|now|just)\b/i.test(question);
+  const meter = createMeter({ feature: 'ask', transcriptionId, userId });
 
   // the same question about the same version of the transcript: answer from storage, no model call
   if (!deictic) {
     const prev = await db.findAnswer(transcriptionId, normQuestion(question), version, normQuestion);
     if (prev) {
       emit({ type: 'cached' });
+      meter.finish({ cached: true });
       return { id: prev.id, question: prev.question, answer: prev.answer, refs: prev.refs, found: prev.found, cached: true };
     }
   }
@@ -220,7 +229,7 @@ export async function askTranscript(db, { transcriptionId, question, at = null }
   if (needsRetrieval(segments)) {
     emit({ type: 'status', status: 'searching' });
     try {
-      const r = await ai.complete({ task: 'expand', ...taskConfig('expand'), system: 'You help search transcripts.', schema: EXPAND_SCHEMA, messages: [{ role: 'user', content: expandInstructions(question) }] });
+      const r = await meter.call('ask:keywords', () => ai.complete({ task: 'expand', ...taskConfig('expand'), system: 'You help search transcripts.', schema: EXPAND_SCHEMA, messages: [{ role: 'user', content: expandInstructions(question) }] }));
       keywords = (r.json?.keywords || []).slice(0, 20).map(String);
       usageIn += r.usage.input; usageOut += r.usage.output;
     } catch { /* retrieval still works on the question's own words */ }
@@ -243,9 +252,17 @@ export async function askTranscript(db, { transcriptionId, question, at = null }
   });
 
   emit({ type: 'status', status: 'answering' });
-  const r = await ai.stream({ task: 'ask', ...taskConfig('ask'), system: ASK_SYSTEM, messages }, (text) => emit({ type: 'delta', text }));
+  let r;
+  try {
+    r = await meter.call('ask', () => ai.stream({ task: 'ask', ...taskConfig('ask'), system: ASK_SYSTEM, messages }, (text) => emit({ type: 'delta', text })));
+  } catch (err) {
+    meter.finish({ error: err?.message || 'failed' });
+    throw err;
+  }
   usageIn += r.usage.input; usageOut += r.usage.output;
   const g = groundAnswer(r.text, ctx.ids);
+  // "passed" = no citation of a line the model wasn't given, and a found answer cites at least one line
+  meter.finish({ groundingPassed: g.invalidCitations === 0 && !g.unsupported, droppedItems: g.invalidCitations });
   const saved = await db.saveQuestion({
     transcriptionId, question, answer: g.answer, refs: g.refs, found: g.found, version, model: r.model, usage: { input: usageIn, output: usageOut },
   });

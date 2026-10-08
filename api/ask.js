@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   try {
     if (req.method !== 'POST') throw new AIError('Method not allowed.', { status: 405, code: 'method_not_allowed' });
-    const { db } = await authenticate(req);
+    const { db, user } = await authenticate(req);
     const body = await readJson(req);
     if (!isUuid(body.transcriptionId)) throw new AIError('Invalid transcript.', { status: 400, code: 'bad_request' });
     const at = Number.isFinite(body.at) && body.at >= 0 ? body.at : null;
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     res.flushHeaders?.();
     streaming = true;
 
-    const result = await askTranscript(db, { transcriptionId: body.transcriptionId, question: body.question, at }, (ev) => {
+    const result = await askTranscript(db, { transcriptionId: body.transcriptionId, question: body.question, at, userId: user.id }, (ev) => {
       if (ev.type === 'delta') send('delta', { text: ev.text });
       else if (ev.type === 'status') send('status', { status: ev.status });
     });

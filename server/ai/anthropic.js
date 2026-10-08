@@ -48,16 +48,22 @@ async function post(apiKey, body) {
       lastErr = new AIError('The analysis service is busy.', { status: 503 });
       continue;
     }
-    let detail = '';
-    try { detail = (await res.json())?.error?.message || ''; } catch {}
-    throw new AIError(res.status === 401 ? 'The analysis service rejected the server key.' : `Analysis request failed (${res.status}). ${detail}`.trim(),
+    // details stay in the server log (status and error type only — never the request or the key)
+    let type = '';
+    try { type = (await res.json())?.error?.type || ''; } catch {}
+    console.error(`[ai] Anthropic request failed: HTTP ${res.status}${type ? ` (${type})` : ''}`);
+    throw new AIError(res.status === 401 ? 'The analysis service is not set up correctly.' : 'The analysis service returned an error.',
       { status: res.status === 429 ? 503 : 502 });
   }
   throw lastErr;
 }
 
+// input = all prompt tokens; the parts are priced differently (cache reads are 10% of the input price)
 const usageOf = (u = {}) => ({
   input: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0),
+  uncached: u.input_tokens || 0,
+  cacheWrite: u.cache_creation_input_tokens || 0,
+  cacheRead: u.cache_read_input_tokens || 0,
   output: u.output_tokens || 0,
 });
 
