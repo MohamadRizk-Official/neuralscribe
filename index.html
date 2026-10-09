@@ -17,7 +17,7 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%2305060f'/%3E%3Cg stroke='url(%23g)' stroke-width='5' stroke-linecap='round'%3E%3Cline x1='14' y1='28' x2='14' y2='36'/%3E%3Cline x1='23' y1='20' x2='23' y2='44'/%3E%3Cline x1='32' y1='12' x2='32' y2='52'/%3E%3Cline x1='41' y1='22' x2='41' y2='42'/%3E%3Cline x1='50' y1='27' x2='50' y2='37'/%3E%3C/g%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500..800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playpen+Sans:wght@400..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -43,7 +43,7 @@
       <section class="landing" id="dropPanel">
       <div class="hero">
         <div class="hero-text">
-          <h1>Who said <span class="grad">what</span>.</h1>
+          <h1>Who said <span class="echo" id="heroEcho"><span class="echo-ghost g1" aria-hidden="true">what.</span><span class="echo-ghost g2" aria-hidden="true">what.</span><span class="echo-ghost g3" aria-hidden="true">what.</span><span class="echo-main"><span class="grad">what</span>.</span></span></h1>
           <p>Drop a recording. Get a speaker-aware transcript, a summary and tools to use it.</p>
           <ul class="pills">
             <li><svg class="pill-safe" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>Audio stays on your device</li>
@@ -90,13 +90,17 @@
 
           <details class="advanced" id="advanced">
             <summary>
+              <span class="adv-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></span>
               <span class="adv-title">Advanced settings</span>
-              <span class="adv-summary mono" id="advSummary"></span>
+              <span class="adv-summary" id="advSummary"></span>
+              <svg class="adv-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
-            <div class="adv-grid">
-              <div class="control">
-                <label for="speakersSelect">Speakers</label>
-                <select id="speakersSelect">
+            <div class="adv-body">
+              <div class="adv-group">
+                <h4 class="adv-group-h">Speakers &amp; model</h4>
+                <div class="control">
+                  <label for="speakersSelect">Speakers</label>
+                  <select id="speakersSelect">
                   <option value="auto" selected>Auto-detect</option>
                   <option value="1">1 person</option>
                   <option value="2">2 people</option>
@@ -110,36 +114,46 @@
                   <option value="10">10 people</option>
                   <option value="off">Don't label speakers</option>
                 </select>
-              </div>
-              <div class="control">
-                <label for="recTypeSelect">Recording type</label>
-                <select id="recTypeSelect">
-                  <option value="" selected>Not set</option>
-                  <option value="general">General</option>
-                  <option value="lecture">Lecture</option>
-                  <option value="meeting">Meeting</option>
-                  <option value="interview">Interview</option>
-                  <option value="podcast">Podcast</option>
-                  <option value="voice_message">Voice Message</option>
-                </select>
-              </div>
-              <div class="control">
-                <label for="modelSelect">Speech model</label>
-                <select id="modelSelect">
+                  <p class="help-sm">If you know how many people talk, labels get more accurate. You can rename or fix speakers afterwards.</p>
+                </div>
+                <div class="control">
+                  <label for="modelSelect">Speech model</label>
+                  <select id="modelSelect">
                   <option value="" selected>Automatic (matches mode)</option>
                   <option value="tiny">Whisper tiny</option>
                   <option value="base">Whisper base</option>
                   <option value="small">Whisper small</option>
                   <option value="turbo">Whisper large-v3 turbo</option>
                 </select>
+                  <p class="help-sm">Automatic picks the model that fits the mode above.</p>
+                </div>
               </div>
-              <div class="control control-wide">
-                <label for="vocabInput">Important words</label>
-                <textarea id="vocabInput" rows="2" spellcheck="false" placeholder="Hadi Salame, SparkScribe, biomechanics, Qazzaz"></textarea>
-                <p class="help">Add names, technical terms, course vocabulary, company names, or words that may be difficult to recognize. Separate them with commas. They're given to the speech model as a spelling hint, which helps but isn't guaranteed.</p>
+              <div class="adv-group">
+                <h4 class="adv-group-h">About this recording</h4>
+                <div class="control">
+                  <label for="recTypeSelect">Recording type</label>
+                  <select id="recTypeSelect">
+                    <option value="" selected>Auto</option>
+                    <option value="lecture">Lecture</option>
+                    <option value="meeting">Meeting</option>
+                    <option value="interview">Interview</option>
+                    <option value="podcast">Podcast</option>
+                    <option value="voice_message">Voice Message</option>
+                    <option value="general">Something else</option>
+                  </select>
+                  <p class="help-sm">Shapes Notes and the suggested Create tools. Auto decides from the length and speakers.</p>
+                </div>
+                <div class="control">
+                  <label for="vocabEntry">Important words</label>
+                  <div class="chips-input" id="vocabChips">
+                    <ul class="chip-list" id="vocabList" aria-label="Important words"></ul>
+                    <input id="vocabEntry" type="text" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="Add a name or term, then Enter" />
+                  </div>
+                  <textarea id="vocabInput" hidden></textarea>
+                  <p class="help-sm">Helps SparkScribe spell names and specialized words, like <i>Hadi Salame</i> or <i>biomechanics</i>. Pasting a list works too.</p>
+                </div>
               </div>
             </div>
-            <p class="help">Speaker labels are automatic and can be wrong. If you know how many people are talking, choosing it here makes them more accurate, and you can rename or fix speakers after transcription.</p>
           </details>
         </div>
       </div>
@@ -151,7 +165,7 @@
           </div>
           <div class="hear-grid">
             <article class="hear-card">
-              <header><span class="hear-ic cyan" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h2m3-5v10m3-13v16m3-11v6m3-3h2"/></svg></span><div><h3>Transcribe</h3><p>Speaker-aware, with timestamps</p></div><span class="hear-tab mono">Transcript</span></header>
+              <header><span class="hear-ic cyan" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h2m3-5v10m3-13v16m3-11v6m3-3h2"/></svg></span><div><span class="hear-step s1">Hear it</span><h3>Transcribe</h3><p>Speaker-aware, with timestamps</p></div><span class="hear-tab mono">Transcript</span></header>
               <div class="hear-demo hear-lines">
                 <div><span class="mono t1">0:04</span><span><b class="s1">Speaker 1</b> Let’s move the beta to Friday.</span></div>
                 <div class="hl"><span class="mono t2">0:09</span><span><b class="s2">Speaker 2</b> I’ll update the invite list today.</span></div>
@@ -159,7 +173,7 @@
               </div>
             </article>
             <article class="hear-card">
-              <header><span class="hear-ic violet" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></span><div><h3>Understand</h3><p>Overview, key notes, answers</p></div><span class="hear-tab mono">Summary · Notes · Ask</span></header>
+              <header><span class="hear-ic violet" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></span><div><span class="hear-step s2">Understand it</span><h3>Understand</h3><p>Overview, key notes, answers</p></div><span class="hear-tab mono">Summary · Notes · Ask</span></header>
               <div class="hear-tabs" role="tablist" aria-label="Understand example">
                 <button type="button" role="tab" aria-selected="false" data-hear="summary">Summary</button>
                 <button type="button" role="tab" aria-selected="false" data-hear="notes">Notes</button>
@@ -172,7 +186,7 @@
               </div>
             </article>
             <article class="hear-card">
-              <header><span class="hear-ic pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span><div><h3>Create</h3><p>Quizzes, study tools, recaps, drafts</p></div><span class="hear-tab mono">Create</span></header>
+              <header><span class="hear-ic pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span><div><span class="hear-step s3">Use it</span><h3>Create</h3><p>Quizzes, study tools, recaps, drafts</p></div><span class="hear-tab mono">Create</span></header>
               <div class="hear-chips" role="group" aria-label="Create example">
                 <button type="button" aria-pressed="true" data-make="quiz">Quiz</button>
                 <button type="button" aria-pressed="false" data-make="cards">Flashcards</button>

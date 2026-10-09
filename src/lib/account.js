@@ -69,7 +69,7 @@ export function mountAccountMenu(slot, { onChange } = {}) {
   slot.innerHTML = '<span class="acct-skel" aria-hidden="true"></span>';
 
   let menu = null;
-  const close = () => { menu?.remove(); menu = null; document.removeEventListener('pointerdown', outside); };
+  const close = () => { menu?.remove(); menu = null; document.removeEventListener('pointerdown', outside); slot.querySelector('.acct-btn')?.setAttribute('aria-expanded', 'false'); };
   const outside = (e) => { if (menu && !menu.contains(e.target) && !slot.contains(e.target)) close(); };
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
@@ -84,19 +84,21 @@ export function mountAccountMenu(slot, { onChange } = {}) {
     adoptAccountPrefs(session.user);
     const p = await loadProfile(session.user);
     const label = p.name || p.email;
-    slot.innerHTML = `<button class="acct-btn" type="button" aria-haspopup="menu" aria-label="Account menu" title="${esc(label)}">
+    slot.innerHTML = `<button class="acct-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">
       ${p.avatar ? `<img src="${esc(p.avatar)}" alt="" referrerpolicy="no-referrer" />` : `<span>${esc(initialsOf(label))}</span>`}
     </button>`;
-    slot.querySelector('.acct-btn').addEventListener('click', () => {
+    const btn = slot.querySelector('.acct-btn');
+    btn.addEventListener('click', () => {
       if (menu) return close();
+      btn.setAttribute('aria-expanded', 'true');
       menu = document.createElement('div');
       menu.className = 'acct-menu';
       menu.setAttribute('role', 'menu');
       menu.innerHTML = `
-        <div class="acct-head">${p.name ? `<b>${esc(p.name)}</b>` : ''}<span>${esc(p.email)}</span></div>
+        <div class="acct-head"><span class="acct-avatar" aria-hidden="true">${p.avatar ? `<img src="${esc(p.avatar)}" alt="" referrerpolicy="no-referrer" />` : esc(initialsOf(label))}</span><span class="acct-who">${p.name ? `<b>${esc(p.name)}</b>` : ''}<span>${esc(p.email)}</span></span></div>
+        <a role="menuitem" href="/settings#account"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-3.6 3.8-5.5 7-5.5s6 1.9 7 5.5"/></svg>Account</a>
+        <a role="menuitem" href="/settings#preferences">${GEAR}Settings</a>
         <a role="menuitem" href="/library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6v14H4zM14 5h6v14h-6z"/></svg>My Library</a>
-        <a role="menuitem" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0-12-4 4m4-4 4 4M5 20h14"/></svg>New transcription</a>
-        <a role="menuitem" href="/settings">${GEAR}Settings</a>
         <hr />
         <button role="menuitem" type="button" data-signout><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 12H4m0 0 4-4m-4 4 4 4M13 5h6v14h-6"/></svg>Sign out</button>`;
       menu.querySelector('[data-signout]').addEventListener('click', async () => {
@@ -104,6 +106,15 @@ export function mountAccountMenu(slot, { onChange } = {}) {
         if (/^\/(library|transcript)/.test(location.pathname)) location.replace('/');
       });
       slot.appendChild(menu);
+      menu.querySelector('[role="menuitem"]')?.focus();
+      // arrow keys move between items (a real menu, not a tooltip)
+      menu.addEventListener('keydown', (e) => {
+        const items = [...menu.querySelectorAll('[role="menuitem"]')];
+        const i = items.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+        if (e.key === 'Escape') { close(); btn.focus(); }
+      });
       setTimeout(() => document.addEventListener('pointerdown', outside), 0);
     });
   }

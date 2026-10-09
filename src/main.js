@@ -112,6 +112,42 @@ els.recTypeSelect.addEventListener('change', updateSettingsUI);
 els.modeInputs.forEach((i) => i.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
 els.vocabInput.addEventListener('input', () => { savePrefs(); updateSettingsUI(); });
 
+// Important words as removable chips. The hidden #vocabInput stays the source of truth (comma separated),
+// so saving, the summary line and the speech-model hint work exactly as before.
+{
+  const list = $('vocabList'), entry = $('vocabEntry'), box = $('vocabChips');
+  const draw = () => {
+    list.innerHTML = vocabulary().map((w, i) => `<li class="chip-word"><span>${esc(w)}</span><button type="button" data-i="${i}" aria-label="Remove ${esc(w)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></li>`).join('');
+  };
+  const write = (words) => { els.vocabInput.value = words.join(', '); els.vocabInput.dispatchEvent(new Event('input')); draw(); };
+  const add = (text) => {
+    const cur = vocabulary(), seen = new Set(cur.map((w) => w.toLowerCase()));
+    for (const w of String(text).split(/[,\n;]+/).map((x) => x.trim()).filter(Boolean)) {
+      if (!seen.has(w.toLowerCase()) && cur.length < 60) { cur.push(w.slice(0, 60)); seen.add(w.toLowerCase()); }
+    }
+    write(cur);
+  };
+  if (list && entry && box) {
+    entry.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ',') && entry.value.trim()) { e.preventDefault(); add(entry.value); entry.value = ''; }
+      else if (e.key === 'Backspace' && !entry.value && vocabulary().length) { const w = vocabulary(); w.pop(); write(w); }
+    });
+    entry.addEventListener('paste', (e) => {
+      const t = e.clipboardData?.getData('text') || '';
+      if (/[,\n;]/.test(t)) { e.preventDefault(); add(t); }
+    });
+    entry.addEventListener('blur', () => { if (entry.value.trim()) { add(entry.value); entry.value = ''; } });
+    list.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-i]');
+      if (!b) return;
+      const w = vocabulary(); w.splice(Number(b.dataset.i), 1); write(w);
+      entry.focus();
+    });
+    box.addEventListener('click', (e) => { if (e.target === box || e.target === list) entry.focus(); });
+    draw();
+  }
+}
+
 // ---------- worker ----------
 function getWorker() {
   if (worker) return worker;
@@ -822,8 +858,8 @@ function seek(t, play = false) {
 els.playBtn.addEventListener('click', () => (els.player.paused ? els.player.play().catch(() => {}) : els.player.pause()));
 els.backBtn.addEventListener('click', () => seek(els.player.currentTime - 10));
 els.fwdBtn.addEventListener('click', () => seek(els.player.currentTime + 10));
-els.player.addEventListener('play', () => els.playBtn.classList.add('playing'));
-els.player.addEventListener('pause', () => els.playBtn.classList.remove('playing'));
+els.player.addEventListener('play', () => { els.playBtn.classList.add('playing'); mascotSignal('audio-play'); });
+els.player.addEventListener('pause', () => { els.playBtn.classList.remove('playing'); mascotSignal('audio-pause'); });
 els.player.addEventListener('timeupdate', () => { updatePlayhead(); updateActive(false); });
 els.pbSeek.addEventListener('input', () => {
   if (!state?.duration) return;
@@ -1241,6 +1277,28 @@ const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document
   document.addEventListener('visibilitychange', still);
   window.addEventListener('blur', still);
   window.addEventListener('focus', still);
+}
+
+// "what." has a soft echo: three faint copies (cyan, violet, pink) that drift a few pixels AGAINST the pointer,
+// like an after-image of a sound. The word itself never moves. Mouse only; off with reduce motion.
+{
+  const echo = document.getElementById('heroEcho');
+  const fine = matchMedia('(hover: hover) and (pointer: fine)');
+  let tx = 0, ty = 0, x = 0, y = 0, raf = 0;
+  const tick = () => {
+    x += (tx - x) * 0.12; y += (ty - y) * 0.12;
+    echo.style.setProperty('--ex', x.toFixed(3)); echo.style.setProperty('--ey', y.toFixed(3));
+    raf = Math.abs(tx - x) + Math.abs(ty - y) > 0.002 ? requestAnimationFrame(tick) : 0;
+  };
+  if (echo) {
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse' || !fine.matches || calmMotion.matches || !onLanding()) return;
+      const r = echo.getBoundingClientRect();
+      tx = -Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (innerWidth / 2)));
+      ty = -Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (innerHeight / 2)));
+      if (!raf) raf = requestAnimationFrame(tick);
+    }, { passive: true });
+  }
 }
 
 // The transcript example plays along slowly while it is on screen (like the real Play along view).

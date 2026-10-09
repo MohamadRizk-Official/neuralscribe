@@ -19,6 +19,7 @@ const ICON = {
   headphones: svg('<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6"/>'),
   quote: svg('<path d="M5 6h14M5 11h14M5 16h9"/>'),
   loop: svg('<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7M20 4v4.7h-4.7M20 12a8 8 0 0 1-13.7 5.6L4 15.3M4 20v-4.7h4.7"/>'),
+  spark: svg('<path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="M19 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>'),
   quiz: svg('<path d="M9.2 9.3a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.6v.6"/><circle cx="12" cy="17.6" r=".9" fill="currentColor" stroke="none"/><rect x="3.5" y="3.5" width="17" height="17" rx="5"/>'),
 };
 
@@ -41,13 +42,30 @@ export const TOOL_INFO = {
 // What each recording type offers in Create. Extracted information (actions, decisions, dates, definitions,
 // exam information, quotes…) is in Notes, not here.
 const CATALOG = {
-  lecture: ['study_guide', 'flashcards', 'quiz'],
+  lecture: ['quiz', 'flashcards', 'study_guide'],
   meeting: ['meeting_recap', 'action_plan', 'followup_email'],
   interview: ['interview_qa'],
   podcast: ['episode_notes'],
-  general: ['action_plan'],
-  voice_message: ['reply_draft'],
+  general: ['action_plan', 'quiz'],
+  voice_message: ['reply_draft', 'action_plan'],
 };
+// shown next to the recommended tools: a related tab that isn't a Create tool
+const RELATED_TAB = { interview: 'summary', podcast: 'summary' };
+
+// The Create landing: one short line, an icon and a color per tool
+const TOOL_CARD = {
+  quiz: { line: 'Test yourself on what was said', c: 'violet', ic: '<path d="M9.2 9.3a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.6v.6"/><circle cx="12" cy="17.6" r=".9" fill="currentColor" stroke="none"/><rect x="3.5" y="3.5" width="17" height="17" rx="5"/>' },
+  flashcards: { line: 'Review key ideas quickly', c: 'cyan', ic: '<rect x="6" y="3.5" width="13" height="15" rx="2.5"/><path d="M4 7v11.5A2.5 2.5 0 0 0 6.5 21H15"/>' },
+  study_guide: { line: 'Turn this into structured study material', c: 'blue', ic: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M8 7.5h8M8 11h6"/>' },
+  meeting_recap: { line: 'Decisions, actions and follow-ups', c: 'cyan', ic: '<rect x="3.5" y="4" width="17" height="16" rx="3"/><path d="M7.5 9h9M7.5 12.5h9M7.5 16h5"/>' },
+  action_plan: { line: 'Turn requests into clear next steps', c: 'blue', ic: '<path d="m4 7 2 2 3.5-3.5M4 15l2 2 3.5-3.5M13 8h7M13 16h7"/>' },
+  followup_email: { line: 'Draft a follow-up from the meeting', c: 'pink', ic: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/>' },
+  reply_draft: { line: 'Draft a response using the recording', c: 'pink', ic: '<path d="M10 8 4 13l6 5"/><path d="M4 13h10a6 6 0 0 1 6 6"/>' },
+  interview_qa: { line: 'Questions and answers, with exact quotes', c: 'violet', ic: '<path d="M4 5h12v9H8l-4 3.5z"/><path d="M16 9h4v9.5L16.5 16H10v-2"/>' },
+  episode_notes: { line: 'Summary, chapters and takeaways', c: 'cyan', ic: '<circle cx="12" cy="11" r="3"/><path d="M6.5 16.5a7.5 7.5 0 1 1 11 0M12 14v7"/>' },
+};
+const EXPORT_IC = '<path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/>';
+const SUMMARY_IC = '<path d="M5 6h14M5 11h14M5 16h9"/>';
 export const toolsFor = (type) => ({ tools: CATALOG[type] || CATALOG.general });
 // Every tool works on any recording; the type only decides which are suggested first. The rest are always
 // one click away under "More tools" (a voice note can still get a quiz).
@@ -208,45 +226,54 @@ export function createToolsUI(api) {
     if (a?.content && api.contentVersion() != null && a.sourceVersion < api.contentVersion()) return ['warn', 'Out of date'];
     if (a?.content) {
       if (kind === 'quiz' && a.progress?.last_score != null) return ['ok', `Last score ${a.progress.last_score}/${a.progress.total}`];
+      if (kind === 'quiz') return ['ok', `${a.content.questions?.length || 0} questions ready`];
       return ['ok', 'Ready'];
     }
-    return ['', SETUP_DIALOG.has(kind) ? 'Not created · asks what you want first' : 'Not created'];
+    return ['', SETUP_DIALOG.has(kind) ? 'You say what it’s for' : 'Try it'];
   }
 
+  // The Create landing: a short hero, the recommended tools as large cards, every other tool as a card too
+  function toolCard(kind, big) {
+    const info = TOOL_INFO[kind], card = TOOL_CARD[kind];
+    const [cls, label] = status(kind);
+    return `<button type="button" class="ctool c-${card.c}${big ? ' big' : ''}" data-tool="${kind}">
+      <span class="ctool-ic" aria-hidden="true">${svg(card.ic)}</span>
+      <span class="ctool-body"><span class="ctool-name">${esc(info.label)}</span><span class="ctool-line">${esc(card.line)}</span></span>
+      <span class="ctool-foot"><span class="ctool-state ${cls}">${esc(label)}</span><span class="ctool-go" aria-hidden="true">${svg('<path d="M5 12h13m0 0-5-5m5 5-5 5"/>')}</span></span>
+    </button>`;
+  }
   function renderList() {
-    const suggested = toolsFor(api.type()).tools;
-    const cards = suggested.map((kind) => {
-      const info = TOOL_INFO[kind];
-      const [cls, label] = status(kind);
-      return `<button type="button" class="tool-card" data-tool="${kind}">
-        <span class="tool-name">${esc(info.label)}</span>
-        <span class="tool-desc">${esc(info.desc)}</span>
-        <span class="tool-state ${cls}">${esc(label)}</span>
-      </button>`;
-    }).join('');
-    // the other tools, compact: name + state; grouped so "Quiz" is easy to find on any recording
-    const more = TOOL_GROUPS.map(([group, kinds]) => {
-      const rest = kinds.filter((k) => !suggested.includes(k));
-      if (!rest.length) return '';
-      return `<div class="tool-more-group"><span class="tool-more-label">${esc(group)}</span>${rest.map((kind) => {
-        const [cls, label] = status(kind);
-        const made = cls === 'ok' || cls === 'warn' || cls === 'busy';
-        return `<button type="button" class="tool-chip${made ? ' made' : ''}" data-tool="${kind}" title="${esc(TOOL_INFO[kind].desc)}">${esc(TOOL_INFO[kind].label)}${made ? `<span class="tool-chip-state ${cls}">${esc(label)}</span>` : ''}</button>`;
-      }).join('')}</div>`;
-    }).join('');
-    return `<p class="tab-intro">Quizzes, study tools, recaps and drafts made from this recording.</p>
-      <div class="panel ins-card">
-        <div class="ins-label">Suggested for this ${esc(api.type() === 'general' ? 'recording' : (RECORDING_TYPE_LABEL[api.type()] || 'recording').toLowerCase())}</div>
-        <p class="ins-sub">Nothing is created until you choose a tool. Everything you create is saved with the recording.</p>
-        <div class="tool-grid">${cards}
-          <button type="button" class="tool-card export" data-tool="export">
-            <span class="tool-name">Export</span><span class="tool-desc">Download the transcript, summary, notes and anything you created as PDF, Word, Markdown, text or subtitles.</span>
-            <span class="tool-state">No AI used</span>
+    const t = api.type();
+    const suggested = toolsFor(t).tools;
+    const rest = TOOL_GROUPS.flatMap(([, kinds]) => kinds).filter((k) => !suggested.includes(k));
+    const related = RELATED_TAB[t];
+    const typeName = t === 'general' ? 'recording' : (RECORDING_TYPE_LABEL[t] || 'recording').toLowerCase();
+    return `<div class="create">
+      <header class="create-hero">
+        <span class="create-hero-ic" aria-hidden="true">${ICON.spark}</span>
+        <div><h2 class="create-title">Create something from this recording</h2><p class="create-sub">Turn what was said into something useful.</p></div>
+      </header>
+      <section class="create-sec" aria-labelledby="crRec">
+        <h3 class="create-h" id="crRec">Recommended for this ${esc(typeName)}</h3>
+        <div class="create-grid rec">${suggested.map((k) => toolCard(k, true)).join('')}${related ? `
+          <button type="button" class="ctool c-blue big" data-goto="${related}">
+            <span class="ctool-ic" aria-hidden="true">${svg(SUMMARY_IC)}</span>
+            <span class="ctool-body"><span class="ctool-name">Summary</span><span class="ctool-line">The short version, key points and chapters</span></span>
+            <span class="ctool-foot"><span class="ctool-state">Summary tab</span><span class="ctool-go" aria-hidden="true">${svg('<path d="M5 12h13m0 0-5-5m5 5-5 5"/>')}</span></span>
+          </button>` : ''}</div>
+      </section>
+      <section class="create-sec" aria-labelledby="crMore">
+        <h3 class="create-h" id="crMore">More tools</h3>
+        <div class="create-grid more">${rest.map((k) => toolCard(k, false)).join('')}
+          <button type="button" class="ctool c-plain" data-tool="export">
+            <span class="ctool-ic" aria-hidden="true">${svg(EXPORT_IC)}</span>
+            <span class="ctool-body"><span class="ctool-name">Export</span><span class="ctool-line">PDF, Word, Markdown, text or subtitles</span></span>
+            <span class="ctool-foot"><span class="ctool-state">No AI used</span><span class="ctool-go" aria-hidden="true">${svg('<path d="M5 12h13m0 0-5-5m5 5-5 5"/>')}</span></span>
           </button>
         </div>
-        <div class="tool-more" aria-label="More tools"><div class="ins-label">More tools</div>${more}</div>
-        <button type="button" class="tool-note-link" data-goto="notes">Looking for actions, dates or decisions from the recording? They’re in Notes →</button>
-      </div>`;
+      </section>
+      <p class="create-foot">Nothing is created until you choose a tool, and everything you create is saved with the recording. <button type="button" class="tool-note-link" data-goto="notes">Actions, dates and decisions are in Notes →</button></p>
+    </div>`;
   }
 
   // inline choices (flashcards / quiz / study guide)
@@ -436,7 +463,7 @@ export function createToolsUI(api) {
     const t = fmtClock(s.start);
     const play = api.canPlay?.();
     return `<div class="proof">
-      ${play ? `<button class="hear" type="button" data-seek="${s.start}" data-ref="${s.id}">${ICON.headphones}<span>Hear it at ${t}</span></button>` : ''}
+      ${play ? `<button class="hear-btn" type="button" data-seek="${s.start}" data-ref="${s.id}">${ICON.headphones}<span>Hear it at ${t}</span></button>` : ''}
       <details class="proof-line"><summary>${play ? `${ICON.quote}<span>Show the line</span>` : `${ICON.quote}<span>See it at ${t}</span>`}</summary>
         <blockquote><span class="proof-meta"><span class="mono">${t}</span>${s.speaker ? ` · ${esc(s.speaker)}` : ''}</span><span class="proof-text">${esc(s.text)}</span>${play ? '' : `<button class="fb-link" type="button" data-seek="${s.start}" data-ref="${s.id}">Open in transcript</button>`}</blockquote>
       </details>
@@ -517,56 +544,63 @@ export function createToolsUI(api) {
     </div>`;
   }
 
-  function quizResultHtml(a, v) {
-    const qs = a.content.questions, r = summary(v.run);
+  // a missed question, said plainly: what you picked (pink, ✕) and what was right (green, ✓), then why and the proof
+  function missCardHtml(q, given, byId, { full = false, n = 0, of = 0 } = {}) {
+    return `<article class="miss-card${full ? ' full' : ''}"${full ? ` aria-label="Missed question ${n} of ${of}"` : ''}>
+      ${full ? `<p class="q-kind">Question ${n} of ${of}</p>` : ''}
+      <p class="miss-q">${esc(q.question)}</p>
+      <div class="miss-pair">
+        ${given ? `<div class="miss-ans yours"><span class="miss-label">${ICON.x}Your answer</span><b>${esc(given)}</b></div>` : ''}
+        <div class="miss-ans right"><span class="miss-label">${ICON.check}Correct answer</span><b>${esc(q.answer)}</b></div>
+      </div>
+      ${full && q.explanation ? `<p class="miss-why"><span class="miss-label">Why</span>${esc(q.explanation)}</p>` : ''}
+      ${full ? proofHtml(q, byId) : ''}
+    </article>`;
+  }
+  const givenOf = (run) => new Map(run.items.map((it, k) => [it.qi, run.answers[k]?.given]));
+
+  function quizResultHtml(a, v, byId) {
+    const qs = a.content.questions, r = summary(v.run), given = givenOf(v.run);
     const pct = Math.round((r.score / r.total) * 100), perfect = r.score === r.total;
     const msg = perfect ? 'Every answer right. Nicely done.' : pct >= 80 ? 'Great work — just a little to review.' : pct >= 50 ? 'Good progress — a few to review.' : 'Keep going — you’re getting there.';
     const C = 2 * Math.PI * 52;
-    const sparks = perfect ? `<div class="res-sparks" aria-hidden="true">${Array.from({ length: 12 }, (_, i) => `<i style="--a:${i * 30}deg;--d:${(i % 4) * 50}ms"></i>`).join('')}</div>` : '';
+    const sparks = perfect ? `<div class="qr-sparks" aria-hidden="true">${Array.from({ length: 14 }, (_, i) => `<i style="--a:${i * (360 / 14)}deg;--d:${(i % 4) * 60}ms"></i>`).join('')}</div>` : '';
+    // the next step is obvious: review what was missed first, then retake those, then the full quiz
+    const actions = r.missed.length
+      ? `<button class="btn btn-primary qr-main" type="button" data-act="review">Review missed questions <span aria-hidden="true">→</span></button>
+         <button class="btn qr-second" type="button" data-act="retake-missed">${ICON.loop}Retake missed</button>
+         <button class="qr-third" type="button" data-act="retake">Retake full quiz</button>`
+      : '<button class="btn btn-primary qr-main" type="button" data-act="retake">Retake full quiz</button>';
     return `<div class="study study-result${perfect ? ' perfect' : ''}">
       ${crumb()}
-      <section class="study-card result-card" aria-labelledby="resTitle">
+      <section class="study-card result-card" aria-labelledby="qrTitle">
         ${sparks}
-        <p class="res-eyebrow">${v.run.kind === 'missed' ? 'Missed questions done' : 'Quiz complete'}</p>
-        <div class="res-ring" role="img" aria-label="${r.score} of ${r.total} correct, ${pct} percent">
-          <svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="resGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#a78bfa"/><stop offset="1" stop-color="#f472b6"/></linearGradient></defs>
-            <circle cx="60" cy="60" r="52" class="res-track"/><circle cx="60" cy="60" r="52" class="res-arc" style="stroke-dasharray:${C.toFixed(1)};--off:${(C * (1 - r.score / r.total)).toFixed(1)}"/></svg>
-          <div class="res-num"><b>${r.score} / ${r.total}</b><span>${pct}%</span></div>
+        <p class="qr-eyebrow">${v.run.kind === 'missed' ? 'Missed questions done' : 'Quiz complete'}</p>
+        <div class="qr-ring" role="img" aria-label="${r.score} of ${r.total} correct, ${pct} percent">
+          <svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="qrGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#a78bfa"/><stop offset="1" stop-color="#f472b6"/></linearGradient></defs>
+            <circle cx="60" cy="60" r="52" class="qr-track"/><circle cx="60" cy="60" r="52" class="qr-arc" style="stroke-dasharray:${C.toFixed(1)};--off:${(C * (1 - r.score / r.total)).toFixed(1)}"/></svg>
+          <div class="qr-num"><b data-count="${r.score}">${r.score}</b><i>/ ${r.total}</i><span>${pct}%</span></div>
         </div>
-        <h3 class="res-title" id="resTitle" tabindex="-1">${perfect ? 'Perfect score' : msg}</h3>
-        ${perfect ? `<p class="res-msg">${msg}</p>` : ''}
-        <div class="res-split">
-          <div class="res-chip strong">${ICON.check}<b>${r.strong.length}</b><span>Strong</span></div>
-          <div class="res-chip review">${ICON.loop}<b>${r.missed.length}</b><span>To review</span></div>
+        <h3 class="qr-title" id="qrTitle" tabindex="-1">${perfect ? 'Perfect score' : msg}</h3>
+        ${perfect ? `<p class="qr-msg">${msg}</p>` : ''}
+        <div class="qr-split">
+          <div class="qr-chip strong">${ICON.check}<b>${r.strong.length}</b><span>Strong</span></div>
+          <div class="qr-chip review">${ICON.loop}<b>${r.missed.length}</b><span>To review</span></div>
         </div>
-        <div class="res-actions">
-          ${r.missed.length ? '<button class="btn btn-primary" type="button" data-act="review">Review missed questions</button><button class="btn btn-ghost" type="button" data-act="retake-missed">Retake missed questions</button>' : ''}
-          <button class="btn ${r.missed.length ? 'btn-ghost' : 'btn-primary'}" type="button" data-act="retake">Retake full quiz</button>
-        </div>
+        <div class="qr-actions">${actions}</div>
         <button class="study-back" type="button" data-act="tools">← Back to Create</button>
       </section>
-      ${r.missed.length ? `<section class="miss-list" aria-label="Questions to review"><h4 class="miss-head">To review</h4>${r.missed.map((qi) => `<article class="miss-card"><p class="miss-q">${esc(qs[qi].question)}</p><p class="miss-a">${ICON.check}<span>${esc(qs[qi].answer)}</span></p></article>`).join('')}</section>` : ''}
+      ${r.missed.length ? `<section class="miss-list" aria-label="Questions to review"><h4 class="miss-head">To review</h4>${r.missed.map((qi) => missCardHtml(qs[qi], given.get(qi), byId)).join('')}</section>` : ''}
     </div>`;
   }
 
   function quizReviewHtml(a, v, byId) {
-    const qs = a.content.questions, r = summary(v.run);
-    const given = new Map(v.run.items.map((it, k) => [it.qi, v.run.answers[k]?.given]));
+    const qs = a.content.questions, r = summary(v.run), given = givenOf(v.run);
     return `<div class="study study-review">
       <div class="study-top-row">${crumb()}<button class="study-exit" type="button" data-act="results">← Results</button></div>
       <h3 class="study-title" id="revTitle" tabindex="-1">Review missed questions</h3>
-      ${r.missed.map((qi, n) => {
-        const q = qs[qi];
-        return `<section class="study-card rev-card" aria-label="Missed question ${n + 1}">
-          <p class="q-kind">Question ${n + 1} of ${r.missed.length}</p>
-          <p class="rev-q">${esc(q.question)}</p>
-          ${given.get(qi) ? `<p class="rev-given">${ICON.x}<span>You answered <b>${esc(given.get(qi))}</b></span></p>` : ''}
-          <p class="fb-answer"><span>Correct answer</span><b>${esc(q.answer)}</b></p>
-          ${q.explanation ? `<p class="fb-why">${esc(q.explanation)}</p>` : ''}
-          ${proofHtml(q, byId)}
-        </section>`;
-      }).join('')}
-      <div class="res-actions"><button class="btn btn-primary" type="button" data-act="retake-missed">Retake missed questions</button><button class="btn btn-ghost" type="button" data-act="retake">Retake full quiz</button></div>
+      ${r.missed.map((qi, n) => missCardHtml(qs[qi], given.get(qi), byId, { full: true, n: n + 1, of: r.missed.length })).join('')}
+      <div class="qr-actions"><button class="btn btn-primary qr-main" type="button" data-act="retake-missed">${ICON.loop}Retake missed questions</button><button class="qr-third" type="button" data-act="retake">Retake full quiz</button></div>
     </div>`;
   }
 
@@ -582,7 +616,7 @@ export function createToolsUI(api) {
     const v = a?.content?.questions?.length ? quizView(a) : null;
     const byId = api.segById();
     if (v?.phase === 'play') return quizPlayHtml(a, v, byId);
-    if (v?.phase === 'result') return quizResultHtml(a, v);
+    if (v?.phase === 'result') return quizResultHtml(a, v, byId);
     if (v?.phase === 'review') return quizReviewHtml(a, v, byId);
     return quizSetupHtml({ sel, a, busy, err, stale });
   }
@@ -598,6 +632,11 @@ export function createToolsUI(api) {
   // ---------- events ----------
   function bind(p) {
     p.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => api.showTab(b.dataset.goto)));
+    p.querySelectorAll('.ctool.big').forEach((b) => b.addEventListener('pointerenter', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      const r = b.getBoundingClientRect();
+      mascotSignal('look', { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    }));
     p.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.tool === 'export') return api.openExport();
       ui.tool = b.dataset.tool;
@@ -746,13 +785,23 @@ export function createToolsUI(api) {
     }
     focusAfter(p);
   }
+  // the score counts up once when the result appears (skipped with reduce motion)
+  function countUp(p) {
+    const el = p.querySelector('.qr-num b[data-count]');
+    if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const to = Number(el.dataset.count), t0 = performance.now();
+    const step = (t) => { const k = Math.min(1, (t - t0) / 900); el.textContent = String(Math.round(to * (1 - (1 - k) ** 3))); if (k < 1) requestAnimationFrame(step); };
+    el.textContent = '0';
+    requestAnimationFrame(step);
+  }
   // after a re-render, put focus where the learner continues (and never steal it otherwise)
   function focusAfter(p) {
     const f = ui.focus; ui.focus = null;
     if (!f) return;
+    if (f === 'result') countUp(p);
     const el = f === 'question' ? (p.querySelector('.sa-input') || p.querySelector('#qText'))
       : f === 'continue' ? p.querySelector('[data-act="qnext"]')
-        : f === 'result' ? p.querySelector('#resTitle')
+        : f === 'result' ? p.querySelector('#qrTitle')
           : f === 'review' ? p.querySelector('#revTitle')
             : f === 'setup' ? p.querySelector('[data-act="start"]')
               : f.startsWith('set:') ? p.querySelector(`[data-set="${f.slice(4)}"][aria-checked="true"]`) : null;

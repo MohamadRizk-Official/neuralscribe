@@ -85,7 +85,7 @@ export function mountMascot({ page = 'other' } = {}) {
 
   // ---------- state ----------
   let X = homeX(), Y = standY(), yaw = 0, roll = 0;
-  let mode = 'stand';                      // stand | wall | held | air | roll
+  let mode = 'stand';                      // stand | wall | held | air | roll | leap | perch (on the quiz card)
   let mood = 'idle';                       // idle | excited | working | celebrating | sad | thinking
   let peek = false, peekK = 0, moved = false, readingMode = readingPage;
   let speed = 0, lastDir = 1, accel = 0, phase = 0, loco = null, turnStep = 0;
@@ -95,6 +95,8 @@ export function mountMascot({ page = 'other' } = {}) {
   let wallBaseY = 0, climb = null, climbPhase = 0, sliding = 0;
   const climbPrm = { phase: 0 }, hangPrm = { twist: 0 }, heldPrm = { flail: 0 };
   let hangTwistTarget = 0;
+  let leap = null, perchSide = 1, perchWanted = false, afterLand = null, perchCheckAt = 0;
+  const perchPrm = { side: 1 };
   const anim = new Animator();
   let P = anim.out;
   const F = REST.slice();                  // final pose (animation + secondary motion)
@@ -102,7 +104,8 @@ export function mountMascot({ page = 'other' } = {}) {
   let ex = 0, ey = 0, look = null, glance = { x: 0, y: 0, next: 0 };
   const cursor = { x: -1, y: -1, t: -1e9 };
   let clock = 0;
-  const cool = { near: 0, fast: 0, search: 0 };
+  const cool = { near: 0, fast: 0, search: 0, look: 0 };
+  let listeningAudio = false;
   const quiet = () => pref === 'quiet';
   const live = () => pref !== 'off' && !document.hidden;
   const sx = () => X + P[K.sx] * k, sy = () => Y - P[K.sy] * k;
@@ -154,6 +157,7 @@ export function mountMascot({ page = 'other' } = {}) {
     loco = null; climb = null; sliding = 0; look = null;
     if (['gait', 'sit', 'hang', 'climb', 'slide'].includes(anim.baseName) && mode === 'stand') anim.setBase(moodBase(), {}, 0.4);
     if (mode === 'wall') { mode = 'air'; vx = 0; vy = 0; w = 0; wy = 0; anim.setBase('air', {}, 0.25); }   // it lets go of the wall
+    if (mode === 'perch' || mode === 'leap') anim.setBase('perch', perchPrm, 0.2);
   }
   function run(fn) {
     cancelTask();
@@ -218,7 +222,7 @@ export function mountMascot({ page = 'other' } = {}) {
   function moodBase() { return { excited: 'excited', working: 'working', sad: 'sad', thinking: 'think' }[mood] || 'idle'; }
   function setMood(m) {
     mood = m;
-    E.base({ excited: 'excited', working: 'processing', sad: 'error', thinking: 'listening' }[m] || 'idle');
+    E.base({ excited: 'excited', working: 'processing', sad: 'error', thinking: 'listening' }[m] || (listeningAudio ? 'listening' : 'idle'));
     if (mode === 'stand' && !['gait', 'climb', 'hang', 'slide', 'fallen'].includes(anim.baseName)) anim.setBase(moodBase(), {}, 0.4);
   }
 
@@ -265,6 +269,11 @@ export function mountMascot({ page = 'other' } = {}) {
     stepSecondary(dt);
     stepEye(dt);
     autonomy();
+    if (perchWanted && mode === 'stand' && !taskActive && !grab && clock - perchCheckAt > 0.5) {
+      perchCheckAt = clock;
+      const A = perchAnchor();
+      if (!A) perchWanted = false; else if (A.visible) { perchWanted = false; run(perchOn); }
+    }
     // standing still and just breathing: 30 frames a second is plenty (saves battery)
     const still = mode === 'stand' && !loco && speed < 1 && !yawTw && !anim.playing && Math.abs(spr.sqV) + Math.abs(spr.leanV) + Math.abs(spr.gemV) < 0.02;
     drawDt += dt;
@@ -298,7 +307,7 @@ export function mountMascot({ page = 'other' } = {}) {
     const r = 1.125 * k;
     hit.style.transform = `translate3d(${(cx - r).toFixed(1)}px, ${(cy - r).toFixed(1)}px, 0)`;
     const ground = FLOOR() - support(roll + P[K.sr]) * k;
-    const alt = mode === 'wall' ? 2 : Math.max(0, ground - cy) / (3 * k);
+    const alt = mode === 'wall' || mode === 'perch' || mode === 'leap' ? 2 : Math.max(0, ground - cy) / (3 * k);
     const sw = 1.9 * k, sh = 0.34 * k;
     shadowEl.style.transform = `translate3d(${(cx - sw / 2).toFixed(1)}px, ${(FLOOR() - sh * 0.55).toFixed(1)}px, 0) scale(${(1 - Math.min(alt, 0.6)).toFixed(3)})`;
     shadowEl.style.opacity = peekK > 0.5 ? '0' : (1 - Math.min(alt, 0.85)).toFixed(2);
@@ -306,8 +315,72 @@ export function mountMascot({ page = 'other' } = {}) {
 
   // ---------- ground: walking / running, climbing ----------
   const WALK = 80, RUN = 290;
+  // ---------- the quiz card: it jumps up and hangs from the card's top corner by one arm ----------
+  const PERCH_SEL = '.study.quiz .q-card';
+  function perchAnchor() {
+    const el = document.querySelector(PERCH_SEL);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (!r.width) return null;
+    const side = vw() - r.right > 2.9 * k ? 1 : -1;      // outside the card when there's room, else just inside
+    const gx = r.right - (side > 0 ? 0.1 : 0.25) * k, gy = r.top + 0.06 * k;
+    return { side, gx, gy, x: gx + side * 1.35 * k, y: gy + 0.95 * k, visible: gy > 0.7 * k && gy < innerHeight - 2.6 * k };
+  }
+  function letGo(hop = true) {
+    mode = 'air'; leap = null;
+    vx = hop ? perchSide * 140 : 0; vy = hop ? -260 : 40; w = 0; wy = 0; roll = 0;
+    anim.setBase('air', {}, 0.15);
+  }
+  function stepPerch(dt) {
+    const A = perchAnchor();
+    if (mode === 'leap') {
+      if (!A || !A.visible) { letGo(false); return; }
+      leap.t = Math.min(1, leap.t + dt / leap.dur);
+      const u = ss(leap.t);
+      X = lerp(leap.fx, A.x, u);
+      Y = lerp(leap.fy, A.y, u) - leap.peak * 4 * leap.t * (1 - leap.t);
+      if (leap.t >= 1) {
+        mode = 'perch'; leap = null;
+        perchSide = perchPrm.side = A.side;
+        anim.setBase('perch', perchPrm, 0.14);
+        spr.sqV -= 1.2; E.flash('bright', 400);
+      }
+      return;
+    }
+    if (!A || !A.visible) { perchWanted = !!A; letGo(false); return; }   // scrolled away: drops down, tries again later
+    if (A.side !== perchSide) { perchSide = perchPrm.side = A.side; }
+    X = A.x; Y = A.y;
+  }
+  async function perchOn(id) {
+    const A = perchAnchor();
+    if (!A || !A.visible || touch || calm() || mode === 'perch' || mode === 'leap') return;
+    await rise(id);
+    lookAt(A.gx, A.gy, 1.2);                     // sees the card first
+    await wait(0.25, id);
+    if (mode !== 'stand') return;
+    if (Math.abs(wrap(yaw)) > 0.05) { yaw = wrap(yaw); await turnTo(0, id); }
+    anim.setBase('idle', {}, 0.15);
+    spr.sqV += 1.8;                              // crouch
+    await wait(0.14, id);
+    perchPrm.side = A.side;
+    leap = { t: 0, dur: 0.72, fx: X, fy: Y, peak: Math.max(90, Math.min(260, Math.abs(Y - A.y) * 0.35 + 80)) };
+    mode = 'leap';
+    anim.setBase('air', {}, 0.1);
+    await until(() => mode !== 'leap', id);
+    const q = document.querySelector('.study.quiz .q-text')?.getBoundingClientRect();
+    if (q) lookAt(q.left + q.width / 2, q.top + q.height / 2, 2.5);
+  }
+  // quiz over (or ended): let go of the card, land, then `then` runs instead of the usual landing
+  function releasePerch(then = null) {
+    perchWanted = false;
+    if (mode !== 'perch' && mode !== 'leap') { then?.(); return; }
+    afterLand = then;
+    letGo(true);
+  }
+
   function stepGround(dt) {
     peekK += ((peek ? 1 : 0) - peekK) * (1 - Math.exp(-dt * 3.2));
+    if (mode === 'perch' || mode === 'leap') { stepPerch(dt); return; }
     const prev = speed;
     if (mode === 'stand') {
       if (loco) {
@@ -412,7 +485,8 @@ export function mountMascot({ page = 'other' } = {}) {
     if (Math.abs(w) < 0.06 && Math.abs(roll - rollTarget) < 0.012 && Math.abs(vx) < 12) {
       roll = rollTarget; vx = 0; w = 0; mode = 'stand';
       moved = true; save();
-      if (rollTarget) run(getUp); else run(landed);
+      if (!rollTarget && afterLand) { const f = afterLand; afterLand = null; anim.setBase(moodBase(), {}, 0.3); f(); }
+      else if (rollTarget) run(getUp); else run(landed);
     }
   }
   async function landed(id) {
@@ -854,19 +928,34 @@ export function mountMascot({ page = 'other' } = {}) {
     'quiz-start': () => {
       E.flash('listening', 1600);
       if (touch) { cancelTask(); away = true; peek = true; return; }   // small screens: out of the way of the answers
-      run(async (id) => {
-        await ready(id);
-        const q = document.querySelector('.study.quiz .q-card')?.getBoundingClientRect();
-        if (q) lookAt(q.left + q.width / 2, q.top + q.height / 3, 3);
-      });
+      if (mode === 'perch' || mode === 'leap') return;
+      perchWanted = true;      // the card is drawn right after this signal; the frame loop jumps once it's on screen
+      perchCheckAt = clock - 0.3;
     },
-    'quiz-next': () => { E.flash('listening', 900); },
-    'quiz-end': () => { E.flash('idle', 1); if (away) { away = false; peek = readingMode; } },
-    'quiz-correct': () => { E.flash('happy', 900); E.pulse(1); run((id) => act(Math.random() < 0.5 ? CLIPS.nod : CLIPS.hop, id)); },
-    'quiz-wrong': () => { E.flash('curious', 900); run((id) => act(CLIPS.wobble, id)); },
+    'quiz-next': () => {
+      E.flash('listening', 900);
+      const q = document.querySelector('.study.quiz .q-text')?.getBoundingClientRect();
+      if (q && (mode === 'perch' || mode === 'leap')) setTimeout(() => lookAt(q.left + q.width / 2, q.top + q.height / 2, 2.5), 60);
+      else if (!touch) perchWanted = true;
+    },
+    'quiz-end': () => {
+      E.flash('idle', 1);
+      if (away) { away = false; peek = readingMode; }
+      releasePerch();
+    },
+    'quiz-correct': () => {
+      E.flash('happy', 900); E.pulse(1); E.gem('flash', 600);
+      if (mode === 'perch') run((id) => act(CLIPS.perchCheer(perchSide), id));
+      else run((id) => act(Math.random() < 0.5 ? CLIPS.nod : CLIPS.hop, id));
+    },
+    'quiz-wrong': () => {
+      E.flash('curious', 900);
+      if (mode === 'perch') run((id) => act(CLIPS.perchAww(perchSide), id));
+      else run((id) => act(CLIPS.wobble, id));
+    },
     'quiz-done': ({ score = 0, total = 1 }) => {
       const k2 = total ? score / total : 0;
-      run(async (id) => {
+      const celebrate = () => run(async (id) => {
         await ready(id);
         if (k2 >= 1) {            // perfect: the bigger celebration
           E.flash('success', 2400); E.gem('success', 2200); E.pulse(3); fx('sparkles');
@@ -876,8 +965,22 @@ export function mountMascot({ page = 'other' } = {}) {
         } else if (k2 >= 0.6) { E.flash('success', 1500); E.gem('success', 1200); E.pulse(2); await act(CLIPS.cheer, id); }
         else { E.flash('happy', 1200); E.pulse(1); await act(CLIPS.hop, id); }
       });
+      releasePerch(celebrate);
       afterAction(5000);
     },
+    // a glance only (hovering a Create tool): never a walk or a jump
+    'look': ({ x: lx, y: ly }) => {
+      if (lx == null || mood !== 'idle' || clock < cool.look) return;
+      cool.look = clock + 0.8;
+      lookAt(lx, ly, 1.4);
+    },
+    // Summary / Notes being written: a short reading/thinking state, a small pulse when done
+    'think-start': () => { if (mood === 'idle') { setMood('thinking'); E.gem('shimmer', 99999); } },
+    'think-done': () => { if (mood === 'thinking') toIdle(); E.gem('', 1); E.flash('success', 800); E.pulse(1); },
+    'think-error': () => { if (mood === 'thinking') toIdle(); E.gem('', 1); E.flash('error', 1200); },
+    // the recording is playing: the speaker listens along (no dancing)
+    'audio-play': () => { listeningAudio = true; if (mood === 'idle') E.base('listening'); },
+    'audio-pause': () => { listeningAudio = false; if (mood === 'idle') E.base('idle'); },
     'flashcard-flip': () => { if (!quiet() && Math.random() < 0.15 && mode === 'stand') run((id) => act(CLIPS.spin, id)); },
     'search-found': () => {
       if (clock < cool.search) return;

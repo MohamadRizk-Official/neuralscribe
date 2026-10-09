@@ -3,6 +3,7 @@
 import { isConfigured } from '../lib/supabase.js';
 import { mountAccountMenu, requireUser, esc } from '../lib/account.js';
 import { mountMascot } from '../mascot/mascot.js';
+import { mascotSignal } from '../mascot/bus.js';
 import { getTranscript, updateRecordingType, fmtDuration, fmtDate, langName } from '../lib/transcripts.js';
 import { renameTranscript, setFavorite, deleteTranscripts, markOpened, getRecordingMeta, listFolders } from '../lib/library.js';
 import { promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
@@ -116,6 +117,8 @@ function initials(name) {
 
   // ---- optional "play along": the user opens the original audio from their device (never uploaded) ----
   const player = $('attachPlayer');
+  player.addEventListener('play', () => mascotSignal('audio-play'));
+  player.addEventListener('pause', () => mascotSignal('audio-pause'));
   $('attachInput').addEventListener('change', () => {
     const f = $('attachInput').files[0];
     if (!f) return;

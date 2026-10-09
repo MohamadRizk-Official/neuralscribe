@@ -93,6 +93,12 @@ export function sampleClip(c, t, out) {
 const FALLEN = { aRz: -2.75, aRx: -0.15, aLz: 0.85, aLx: -0.45, lLz: 0.12, lRz: -0.05, lLx: -0.15 };
 const fallenPose = pose(FALLEN);
 
+// hanging from the top corner of the quiz card by one arm. side +1: the body hangs to the right of the
+// grip and its right arm (screen left) holds the edge; side −1 is the mirror image
+const PERCH = { aRz: -2.62, aRx: -0.12, aLz: 0.55, aLx: 0.1, roll: 0.12, lLx: 0.15, lRx: -0.1, lLz: 0.08, lRz: -0.08, fLp: 0.3, fRp: 0.3, sq: -0.03 };
+const perchPose = pose(PERCH);
+const perchMirror = mirror(perchPose);
+
 const sideClip = (build) => { const c = build(); const m = { keys: c.keys.map((k) => ({ t: k.t, p: mirror(k.p) })), dur: c.dur, snapEnd: c.snapEnd }; return (s) => (s < 0 ? m : c); };
 
 export const CLIPS = {
@@ -148,6 +154,13 @@ export const CLIPS = {
   catch: clip([[0, {}], [0.1, { aLz: 2.3, aRz: -2.3, sq: 0.05 }], [0.45, { aLz: 1.8, aRz: -1.8 }], [0.75, {}]]),
   gemTouch: clip([[0, {}], [0.25, { aLz: 2.85, aLx: -0.55, aLy: 0.3, eyeY: 0.9, eyeW: 1 }], [0.45, { aLz: 2.95, aLx: -0.5, eyeY: 0.9, eyeW: 1, gemT: 0.12 }],
     [0.6, { aLz: 2.85, aLx: -0.55, gemT: -0.1, eyeY: 0.9, eyeW: 1 }], [0.75, { aLz: 2.95, gemT: 0.06, eyeY: 0.9, eyeW: 1 }], [1.1, {}]]),
+  // on the quiz card: a right answer — the free arm goes up, a tiny happy bounce while hanging
+  perchCheer: sideClip(() => clip([[0, PERCH], [0.14, { ...PERCH, aLz: 2.5, by: 0.05, sq: 0.04 }], [0.3, { ...PERCH, aLz: 2.95, by: 0.13, sq: -0.05 }],
+    [0.46, { ...PERCH, aLz: 2.7, by: 0.03, sq: 0.03 }], [0.62, { ...PERCH, aLz: 2.95, by: 0.1 }], [0.9, PERCH]])),
+  // a wrong answer — "ah, almost": it sinks a little, looks down, the free arm drops, a small wobble
+  perchAww: sideClip(() => clip([[0, PERCH], [0.2, { ...PERCH, by: -0.12, aLz: 0.12, roll: 0.2, eyeX: -0.2, eyeY: -0.85, eyeW: 1 }],
+    [0.42, { ...PERCH, by: -0.1, aLz: 0.15, roll: 0.06, eyeY: -0.8, eyeW: 1 }], [0.62, { ...PERCH, by: -0.08, aLz: 0.2, roll: 0.16, eyeY: -0.6, eyeW: 0.8 }],
+    [0.85, { ...PERCH, eyeW: 0.3 }], [1.0, PERCH]])),
   tilt: clip([[0, {}], [0.3, { roll: 0.15, twist: -0.12, aLz: 1.6 }], [1.3, { roll: 0.16, twist: -0.1, aLz: 1.6 }], [1.7, {}]]),
   armUp: clip([[0, {}], [0.2, { aRz: -2.85, aRx: -0.2, roll: 0.05 }], [0.7, { aRz: -2.75, roll: 0.05 }], [1.0, {}]]),
   pressUp: clip([[0, { by: -0.25, lLx: -1.25, lRx: -1.25, lLz: 0.15, lRz: -0.15, fLp: 0.4, fRp: 0.4, aLz: 0.75, aRz: -0.75, pitch: -0.08 }],
@@ -285,7 +298,15 @@ function excited(t, prm, o) {
   o[K.aLz] = 1.9 + 0.22 * Math.sin(t * 13); o[K.aRz] = -1.9 - 0.22 * Math.sin(t * 13 + 1);
   o[K.gemT] = 0.04 * Math.sin(t * 6.5);
 }
-export const CYCLES = { idle, gait, climb, hang, slide, sit, held, air, fallen, sad, think, working, excited };
+function perch(t, prm, o) {
+  o.set(prm.side < 0 ? perchMirror : perchPose);
+  const sw = Math.sin(t * 1.7), s = prm.side < 0 ? -1 : 1;
+  o[K.roll] += 0.035 * sw * s;
+  o[K.lLx] += 0.22 * Math.sin(t * 2.1); o[K.lRx] += 0.22 * Math.sin(t * 2.1 + 0.9);
+  if (s > 0) o[K.aLz] += 0.06 * Math.sin(t * 1.3); else o[K.aRz] -= 0.06 * Math.sin(t * 1.3);
+  o[K.by] += 0.01 * Math.sin(t * 1.5);
+}
+export const CYCLES = { idle, gait, climb, hang, slide, sit, held, air, fallen, sad, think, working, excited, perch };
 
 // ---------- animator: one base cycle + one clip on top, with crossfades ----------
 export class Animator {
