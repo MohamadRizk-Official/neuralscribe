@@ -85,9 +85,46 @@ function take(pool, minS, maxS) { // a turn of roughly minS–maxS seconds (cons
 
 // effects
 const gain = (x, db) => x.map((v) => v * 10 ** (db / 20));
-function pitch(x, semis) { // resample (pitch and tempo together): a different-sounding but same person
-  const r = 2 ** (semis / 12), out = new Float32Array(Math.floor(x.length / r));
-  for (let i = 0; i < out.length; i++) { const s = i * r, k = Math.floor(s), f = s - k; out[i] = (x[k] || 0) * (1 - f) + (x[k + 1] || 0) * f; }
+// The same person speaking higher or lower: pitch moves, the voice's resonances (formants) stay. LPC envelopes
+// are measured every 10 ms; the excitation (the residual after removing the envelope) is resampled to the new
+// pitch and re-filtered with the envelope of the matching moment. Tempo changes with pitch, like natural speech.
+// (Plain resampling would also move the formants, which sounds like a different, larger/smaller person.)
+function pitch(x, semis) {
+  const r = 2 ** (semis / 12), N = 400, H = 160, P = 16;
+  const frames = [];
+  for (let s = 0; s + N <= x.length; s += H) {
+    const R = new Float64Array(P + 1);
+    for (let k = 0; k <= P; k++) { let t = 0; for (let i = k; i < N; i++) { const w1 = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N), w2 = 0.5 - 0.5 * Math.cos((2 * Math.PI * (i - k)) / N); t += x[s + i] * w1 * x[s + i - k] * w2; } R[k] = t; }
+    let a = new Float64Array(P + 1); a[0] = 1;
+    if (R[0] > 1e-9) {
+      R[0] *= 1.0001; let err = R[0];
+      for (let i = 1; i <= P; i++) {
+        let acc = R[i]; for (let j = 1; j < i; j++) acc += a[j] * R[i - j];
+        const k = -acc / err, na = Float64Array.from(a);
+        for (let j = 1; j < i; j++) na[j] = a[j] + k * a[i - j];
+        na[i] = k; a = na; err *= 1 - k * k;
+      }
+    }
+    frames.push(a);
+  }
+  if (!frames.length) return x;
+  const coef = (t) => frames[Math.min(frames.length - 1, Math.max(0, Math.round((t - N / 2) / H)))];
+  // excitation: inverse-filter with the envelope of each moment
+  const e = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) { const a = coef(i); let t = x[i]; for (let j = 1; j <= P; j++) t += a[j] * (x[i - j] || 0); e[i] = t; }
+  // new pitch: read the excitation r times faster, re-filter with the envelope at the same source moment
+  const out = new Float32Array(Math.floor(x.length / r));
+  for (let i = 0; i < out.length; i++) {
+    const q = i * r, k = Math.floor(q), fr = q - k;
+    const a = coef(q);
+    let t = (e[k] || 0) * (1 - fr) + (e[k + 1] || 0) * fr;
+    for (let j = 1; j <= P; j++) t -= a[j] * (out[i - j] || 0);
+    out[i] = Number.isFinite(t) ? Math.max(-4, Math.min(4, t)) : 0;
+  }
+  let pi = 0, po = 0;
+  for (const v of x) pi = Math.max(pi, Math.abs(v));
+  for (const v of out) po = Math.max(po, Math.abs(v));
+  if (po) for (let i = 0; i < out.length; i++) out[i] *= pi / po;
   return out;
 }
 function far(x) { // further from the mic: quieter, duller, with room echo
