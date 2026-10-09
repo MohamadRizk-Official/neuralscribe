@@ -648,7 +648,7 @@ export function mountMascot({ page = 'other' } = {}) {
     const b = touch
         ? pick([['nothing', 40], ['lookAround', 20], ['footTap', 12], ['hop', 8], ['stretch', 10], ['sit', 10]])
         : pick([['nothing', 26], ['lookAround', 14], ['footTap', 8], ['hop', 5], ['stretch', 6], ['sit', 6], ['rest', 3],
-          ['steps', roam ? 10 : 0], ['wander', roam ? 4 : 0], ['home', far ? 9 : 0], ['inspect', dzOK ? 6 : 0], ['climb', readingMode || !roam ? 0 : 6],
+          ['steps', roam ? 10 : 0], ['wander', roam ? 4 : 0], ['home', far ? 9 : 0], ['inspect', dzOK && roam ? 6 : 0], ['climb', readingMode || !roam ? 0 : 6],
           ['page', 5], ['dance', 3], ['approach', cursorNear && roam ? 6 : 0], ['feature', roam ? 0 : 12]]);
     if (!b || b === 'nothing') return;
     run((id) => behave(b, id));
