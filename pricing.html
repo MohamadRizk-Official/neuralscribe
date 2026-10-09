@@ -40,47 +40,50 @@
       <section class="incl" aria-labelledby="inclTitle">
         <h2 class="bill-h2" id="inclTitle">Every plan includes</h2>
         <div class="incl-grid">
-          <div class="incl-card">
+          <article class="incl-card c-cyan">
             <span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h2m3-5v10m3-13v16m3-11v6m3-3h2"/></svg></span>
             <h3>Transcribe</h3>
-            <ul><li>On-device transcription</li><li>Speaker detection</li><li>Timestamps</li></ul>
-          </div>
-          <div class="incl-card">
+            <ul class="incl-chips"><li>On-device</li><li>Speakers</li><li>Timestamps</li></ul>
+          </article>
+          <article class="incl-card c-blue">
             <span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></span>
             <h3>Understand</h3>
-            <ul><li>AI Summary</li><li>Notes</li><li>Ask</li><li>Library search</li></ul>
-          </div>
-          <div class="incl-card">
+            <ul class="incl-chips"><li>Summary</li><li>Notes</li><li>Ask</li><li>Search</li></ul>
+          </article>
+          <article class="incl-card c-violet">
             <span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span>
             <h3>Create</h3>
-            <ul><li>Study Guides</li><li>Flashcards</li><li>Quizzes</li><li>Meeting tools</li><li>Drafts</li></ul>
-          </div>
-          <div class="incl-card">
+            <ul class="incl-chips"><li>Quizzes</li><li>Flashcards</li><li>Study Guides</li><li>Recaps</li><li>Drafts</li></ul>
+          </article>
+          <article class="incl-card c-pink">
             <span class="incl-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg></span>
             <h3>Export</h3>
-            <ul><li>PDF</li><li>Word</li><li>Markdown</li><li>TXT</li><li>Subtitles</li></ul>
-          </div>
+            <ul class="incl-chips"><li>PDF</li><li>Word</li><li>Markdown</li><li>TXT</li><li>Subtitles</li></ul>
+          </article>
         </div>
       </section>
 
       <section class="faq" aria-labelledby="faqTitle">
-        <h2 class="bill-h2" id="faqTitle">Questions</h2>
+        <header class="faq-head">
+          <h2 id="faqTitle">Frequently asked questions</h2>
+          <p>Plans, time and privacy, in short.</p>
+        </header>
         <div class="faq-list">
           <details class="faq-item">
-            <summary>What counts toward my plan?<span class="faq-ic" aria-hidden="true"></span></summary>
-            <p>Only the length of recordings you transcribe. Opening recordings, searching, summaries, notes, Ask, Create tools and exports never use your time.</p>
+            <summary><span>What counts toward my plan?</span><span class="faq-ic" aria-hidden="true"></span></summary>
+            <div class="faq-a"><p>Only the length of recordings you transcribe. Opening recordings, searching, summaries, notes, Ask, Create tools and exports never use your time.</p></div>
           </details>
           <details class="faq-item">
-            <summary>When does my time reset?<span class="faq-ic" aria-hidden="true"></span></summary>
-            <p>Free resets on the 1st of each month (UTC). Paid plans reset when your subscription renews each month.</p>
+            <summary><span>When does my time reset?</span><span class="faq-ic" aria-hidden="true"></span></summary>
+            <div class="faq-a"><p>Free resets on the 1st of each month (UTC). Paid plans reset when your subscription renews each month.</p></div>
           </details>
           <details class="faq-item">
-            <summary>What happens if I cancel or downgrade?<span class="faq-ic" aria-hidden="true"></span></summary>
-            <p>Your paid plan stays active until the end of the period you paid for. Your recordings, notes and everything you created stay in your library; only new transcription is limited.</p>
+            <summary><span>What happens if I cancel or downgrade?</span><span class="faq-ic" aria-hidden="true"></span></summary>
+            <div class="faq-a"><p>Your paid plan stays active until the end of the period you paid for. Your recordings, notes and everything you created stay in your library; only new transcription is limited.</p></div>
           </details>
           <details class="faq-item">
-            <summary>What leaves my device?<span class="faq-ic" aria-hidden="true"></span></summary>
-            <p>Never your audio: transcription runs on your device. Transcripts you save are stored privately in your account, and when you use an AI feature only the transcript text it needs is sent to our AI provider, Anthropic. Payments are handled by Stripe; SparkScribe never sees your card.</p>
+            <summary><span>What leaves my device?</span><span class="faq-ic" aria-hidden="true"></span></summary>
+            <div class="faq-a"><p>Never your audio: transcription runs on your device. Transcripts you save are stored privately in your account, and when you use an AI feature only the transcript text it needs is sent to our AI provider, Anthropic. Payments are handled by Stripe; SparkScribe never sees your card.</p></div>
           </details>
         </div>
       </section>
