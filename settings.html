@@ -52,7 +52,7 @@
         <div class="set-row">
           <div class="set-row-text">
             <h3 id="mascotLabel">Mascot</h3>
-            <p>The little crystal companion that reacts while you work.</p>
+            <p>Your little crystal companion.</p>
           </div>
           <div class="segctl" role="radiogroup" aria-labelledby="mascotLabel" id="mascotSeg">
             <button type="button" role="radio" data-v="on">On</button>
@@ -60,10 +60,10 @@
             <button type="button" role="radio" data-v="off">Off</button>
           </div>
         </div>
-        <ul class="set-modes" id="mascotModes">
-          <li data-v="on"><b>On</b> Full personality: it moves around, explores and reacts.</li>
-          <li data-v="quiet"><b>Quiet</b> Stays in its corner. Only reacts to what matters: processing, a finished transcript, errors, Ask, Quiz and your clicks.</li>
-          <li data-v="off"><b>Off</b> Hidden everywhere.</li>
+        <ul class="set-modes" id="mascotModes" aria-live="polite">
+          <li data-v="on">Moves around, explores and reacts to what you do.</li>
+          <li data-v="quiet">Stays in its corner and only reacts to what matters.</li>
+          <li data-v="off">Hidden everywhere.</li>
         </ul>
         <p class="set-note" id="mascotSaved" aria-live="polite"></p>
         <p class="set-note">SparkScribe always follows your device’s “Reduce motion” setting.</p>
@@ -73,8 +73,8 @@
         <h2 id="privacyTitle">Privacy</h2>
         <ul class="set-facts">
           <li><span class="set-ic cyan" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg></span><div><b>Your audio never leaves this device.</b> Transcription runs in your browser.</div></li>
-          <li><span class="set-ic violet" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><div><b>Saved transcripts are private to your account.</b> You can delete them any time in <a href="/library">My Library</a>.</div></li>
-          <li><span class="set-ic pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span><div><b>AI features only send transcript text.</b> Summary, Notes, Ask and Create send the transcript text (never audio) to our AI provider, Anthropic, only when you use them.</div></li>
+          <li><span class="set-ic violet" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><div><b>Saved transcript text is private to your account.</b> Delete it any time in <a href="/library">My Library</a>.</div></li>
+          <li><span class="set-ic pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span><div><b>AI tools send only the transcript text they need</b> to our AI provider, Anthropic, and only when you use them. Never audio.</div></li>
         </ul>
       </section>
     </main>

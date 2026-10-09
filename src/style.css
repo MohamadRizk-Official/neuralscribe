@@ -1018,7 +1018,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .timeline-card { padding: 16px 20px 18px; }
 .timeline { position: relative; cursor: pointer; }
 .timeline canvas { display: block; width: 100%; max-width: 100%; }
-.playhead { position: absolute; top: -4px; bottom: -4px; width: 2px; left: 0; background: var(--k-ffffff); border-radius: 2px; box-shadow: 0 0 10px var(--k-ffffff-80); pointer-events: none; }
+.playhead { position: absolute; top: -3px; bottom: -3px; width: 2px; left: 0; margin-left: -1px; background: var(--ink); border-radius: 2px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 70%, transparent); pointer-events: none; }
+.playhead::before { content: ""; position: absolute; left: 50%; top: -4px; width: 8px; height: 8px; border-radius: 50%; transform: translateX(-50%); background: var(--ink); box-shadow: 0 0 6px color-mix(in srgb, var(--c-cyan) 60%, transparent); }
 .tl-hover {
   position: absolute; top: -26px; transform: translateX(-50%); font-size: 11px; padding: 3px 7px; border-radius: 6px;
   background: var(--panel-solid); border: 1px solid var(--line-2); pointer-events: none; opacity: 0; transition: opacity .1s; white-space: nowrap;
@@ -2991,7 +2992,7 @@ html.bg-paused .bg *, html.bg-paused .bg { animation-play-state: paused !importa
 :root[data-theme="light"] .panel { box-shadow: 0 24px 50px -34px rgba(40, 50, 110, .35), inset 0 1px 0 #fff; }
 :root[data-theme="light"] .bg-noise { opacity: .25; }
 :root[data-theme="light"] .topbar { background: transparent; }
-:root[data-theme="light"] .btn-primary { color: #fff; }
+:root[data-theme="light"] .btn-primary { color: #0b1030; }
 :root[data-theme="light"] .dropzone { background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(244, 246, 255, .9)); }
 :root[data-theme="light"] .m-shadow { background: radial-gradient(closest-side, rgba(40, 50, 110, .28), rgba(40, 50, 110, 0)); }
 :root[data-theme="light"] .m-fx .fx-q { color: #7c3aed; text-shadow: none; }
@@ -3031,3 +3032,218 @@ html.bg-paused .bg *, html.bg-paused .bg { animation-play-state: paused !importa
 .plan-done-item { display: flex; align-items: baseline; gap: 10px; }
 .plan-check { color: var(--c-ok); font-weight: 700; }
 .plan-note { margin-top: 10px; }
+
+/* ---------- Google sign-in: Google's own button look (light and dark), only when the provider is on ---------- */
+.btn-google { width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 44px; padding: 0 16px; border-radius: 12px; cursor: pointer;
+  font: 600 15px/1 var(--font); color: #1f1f1f; background: #fff; border: 1px solid #747775; transition: background-color .2s ease, box-shadow .2s ease, border-color .2s ease; }
+.btn-google:hover { background: #f8f9fb; box-shadow: 0 1px 3px rgba(60, 64, 67, .3), 0 4px 10px -4px rgba(60, 64, 67, .25); }
+.btn-google:focus-visible { outline: 2px solid #4285f4; outline-offset: 2px; }
+.btn-google .g-mark { width: 20px; height: 20px; flex: none; }
+.btn-google .g-mark path { stroke: none; }
+:root:not([data-theme="light"]) .btn-google { color: #e3e3e3; background: #131314; border-color: #8e918f; }
+:root:not([data-theme="light"]) .btn-google:hover { background: #1c1c1e; }
+
+/* ---------- sign-in gate ---------- */
+.gate-chips { list-style: none; margin: 4px 0 2px; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.gate-chips li { padding: 5px 11px; border-radius: 999px; font-size: 14px; font-weight: 500; color: var(--ink); background: color-mix(in srgb, var(--c-violet) 10%, transparent); border: 1px solid color-mix(in srgb, var(--c-violet) 28%, transparent); }
+.gate-alt { margin: 4px 0 0; font-size: 14px; color: var(--ink-3); }
+.link-btn { padding: 0; border: 0; background: none; font: inherit; color: var(--c-violet); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.link-btn:hover { color: var(--ink); }
+
+/* ---------- Settings: only the chosen mascot mode is described ---------- */
+.set-modes li:not(.on) { display: none; }
+
+/* ---------- smooth, never instant: hover and theme changes on controls and cards ---------- */
+:where(button, a, .btn, .tab, .chip, .meta-btn, .segctl button, .ctool, .pack-tile, .use-card, .ns-step, .mode-card, .ans, .hear-btn, input, select, textarea, .panel, .seg) {
+  transition-property: background-color, border-color, box-shadow, color, opacity, transform;
+  transition-duration: .22s;
+  transition-timing-function: ease;
+}
+
+/* ---------- light mode: the same light sweep on primary buttons, tuned for a light page ---------- */
+:root[data-theme="light"] .btn-primary::after { background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .6) 50%, transparent 70%); }
+:root[data-theme="light"] .btn-primary { box-shadow: 0 8px 24px -8px rgba(109, 77, 255, .45); }
+
+/* ---------- light mode: the brand gradient stays bright on buttons; gradient text uses a deeper version ---------- */
+:root[data-theme="light"] { --grad: linear-gradient(120deg, #22d3ee, #a78bfa 55%, #f472b6); --grad-ink: linear-gradient(120deg, #0891b2, #7c3aed 55%, #db2777); }
+:root[data-theme="light"] .grad, :root[data-theme="light"] .pct { background-image: var(--grad-ink); }
+:root[data-theme="light"] .hero h1 .grad { background-image: var(--grad-ink); background-size: 220% 100%; }
+:root[data-theme="light"] select { background-color: #fff; border-color: var(--hair-2); color: var(--ink); }
+:root[data-theme="light"] select:hover { background-color: #fbfbff; }
+
+/* ---------- light mode: brand accents pinned to medium-deep shades (readable as text, clean as fills) ----------
+   The derived palette made the pastel accents nearly black in light mode, which turned icon badges, chips and
+   answer letters into dark indigo blocks. */
+:root[data-theme="light"] {
+  --cyan: #0891b2; --violet: #7c3aed; --magenta: #db2777; --lime: #4d7c0f; --amber: #b45309; --red: #e11d48;
+  --k-a78bfa: #7c3aed;
+  --k-a78bfa-06: rgba(124, 58, 237, 0.06);
+  --k-a78bfa-07: rgba(124, 58, 237, 0.07);
+  --k-a78bfa-08: rgba(124, 58, 237, 0.08);
+  --k-a78bfa-10: rgba(124, 58, 237, 0.1);
+  --k-a78bfa-12: rgba(124, 58, 237, 0.12);
+  --k-a78bfa-14: rgba(124, 58, 237, 0.14);
+  --k-a78bfa-16: rgba(124, 58, 237, 0.16);
+  --k-a78bfa-18: rgba(124, 58, 237, 0.18);
+  --k-a78bfa-22: rgba(124, 58, 237, 0.22);
+  --k-a78bfa-24: rgba(124, 58, 237, 0.24);
+  --k-a78bfa-26: rgba(124, 58, 237, 0.26);
+  --k-a78bfa-28: rgba(124, 58, 237, 0.28);
+  --k-a78bfa-30: rgba(124, 58, 237, 0.3);
+  --k-a78bfa-35: rgba(124, 58, 237, 0.35);
+  --k-a78bfa-40: rgba(124, 58, 237, 0.4);
+  --k-a78bfa-45: rgba(124, 58, 237, 0.45);
+  --k-a78bfa-50: rgba(124, 58, 237, 0.5);
+  --k-a78bfa-55: rgba(124, 58, 237, 0.55);
+  --k-a78bfa-60: rgba(124, 58, 237, 0.6);
+  --k-a78bfa-70: rgba(124, 58, 237, 0.7);
+  --k-a78bfa-85: rgba(124, 58, 237, 0.85);
+  --k-c4b5fd: #6d28d9;
+  --k-c4b5fd-45: rgba(109, 40, 217, 0.45);
+  --k-c4b5fd-70: rgba(109, 40, 217, 0.7);
+  --k-f472b6: #db2777;
+  --k-f472b6-05: rgba(219, 39, 119, 0.05);
+  --k-f472b6-07: rgba(219, 39, 119, 0.07);
+  --k-f472b6-08: rgba(219, 39, 119, 0.08);
+  --k-f472b6-10: rgba(219, 39, 119, 0.1);
+  --k-f472b6-11: rgba(219, 39, 119, 0.11);
+  --k-f472b6-12: rgba(219, 39, 119, 0.12);
+  --k-f472b6-14: rgba(219, 39, 119, 0.14);
+  --k-f472b6-16: rgba(219, 39, 119, 0.16);
+  --k-f472b6-18: rgba(219, 39, 119, 0.18);
+  --k-f472b6-20: rgba(219, 39, 119, 0.2);
+  --k-f472b6-22: rgba(219, 39, 119, 0.22);
+  --k-f472b6-24: rgba(219, 39, 119, 0.24);
+  --k-f472b6-25: rgba(219, 39, 119, 0.25);
+  --k-f472b6-28: rgba(219, 39, 119, 0.28);
+  --k-f472b6-35: rgba(219, 39, 119, 0.35);
+  --k-f472b6-38: rgba(219, 39, 119, 0.38);
+  --k-f472b6-40: rgba(219, 39, 119, 0.4);
+  --k-f472b6-45: rgba(219, 39, 119, 0.45);
+  --k-f472b6-50: rgba(219, 39, 119, 0.5);
+  --k-f472b6-55: rgba(219, 39, 119, 0.55);
+  --k-f472b6-70: rgba(219, 39, 119, 0.7);
+  --k-f472b6-80: rgba(219, 39, 119, 0.8);
+  --k-f472b6-85: rgba(219, 39, 119, 0.85);
+  --k-f472b6-90: rgba(219, 39, 119, 0.9);
+  --k-f9a8d4: #be185d;
+  --k-22d3ee: #0891b2;
+  --k-22d3ee-00: rgba(8, 145, 178, 0);
+  --k-22d3ee-04: rgba(8, 145, 178, 0.04);
+  --k-22d3ee-05: rgba(8, 145, 178, 0.05);
+  --k-22d3ee-06: rgba(8, 145, 178, 0.06);
+  --k-22d3ee-07: rgba(8, 145, 178, 0.07);
+  --k-22d3ee-08: rgba(8, 145, 178, 0.08);
+  --k-22d3ee-09: rgba(8, 145, 178, 0.09);
+  --k-22d3ee-10: rgba(8, 145, 178, 0.1);
+  --k-22d3ee-12: rgba(8, 145, 178, 0.12);
+  --k-22d3ee-13: rgba(8, 145, 178, 0.13);
+  --k-22d3ee-14: rgba(8, 145, 178, 0.14);
+  --k-22d3ee-15: rgba(8, 145, 178, 0.15);
+  --k-22d3ee-16: rgba(8, 145, 178, 0.16);
+  --k-22d3ee-18: rgba(8, 145, 178, 0.18);
+  --k-22d3ee-20: rgba(8, 145, 178, 0.2);
+  --k-22d3ee-22: rgba(8, 145, 178, 0.22);
+  --k-22d3ee-24: rgba(8, 145, 178, 0.24);
+  --k-22d3ee-25: rgba(8, 145, 178, 0.25);
+  --k-22d3ee-28: rgba(8, 145, 178, 0.28);
+  --k-22d3ee-30: rgba(8, 145, 178, 0.3);
+  --k-22d3ee-32: rgba(8, 145, 178, 0.32);
+  --k-22d3ee-35: rgba(8, 145, 178, 0.35);
+  --k-22d3ee-40: rgba(8, 145, 178, 0.4);
+  --k-22d3ee-45: rgba(8, 145, 178, 0.45);
+  --k-22d3ee-50: rgba(8, 145, 178, 0.5);
+  --k-22d3ee-55: rgba(8, 145, 178, 0.55);
+  --k-22d3ee-60: rgba(8, 145, 178, 0.6);
+  --k-22d3ee-65: rgba(8, 145, 178, 0.65);
+  --k-22d3ee-70: rgba(8, 145, 178, 0.7);
+  --k-22d3ee-80: rgba(8, 145, 178, 0.8);
+  --k-22d3ee-85: rgba(8, 145, 178, 0.85);
+  --k-22d3ee-90: rgba(8, 145, 178, 0.9);
+  --k-67e8f9: #0e7490;
+  --k-67e8f9-20: rgba(14, 116, 144, 0.2);
+  --k-67e8f9-22: rgba(14, 116, 144, 0.22);
+  --k-67e8f9-30: rgba(14, 116, 144, 0.3);
+  --k-67e8f9-32: rgba(14, 116, 144, 0.32);
+  --k-67e8f9-35: rgba(14, 116, 144, 0.35);
+  --k-67e8f9-40: rgba(14, 116, 144, 0.4);
+  --k-67e8f9-45: rgba(14, 116, 144, 0.45);
+  --k-67e8f9-50: rgba(14, 116, 144, 0.5);
+  --k-67e8f9-60: rgba(14, 116, 144, 0.6);
+  --k-67e8f9-70: rgba(14, 116, 144, 0.7);
+  --k-a5f3fc: #0e7490;
+  --k-a5f3fc-14: rgba(14, 116, 144, 0.14);
+  --k-a5f3fc-20: rgba(14, 116, 144, 0.2);
+  --k-a5f3fc-35: rgba(14, 116, 144, 0.35);
+  --k-a5f3fc-90: rgba(14, 116, 144, 0.9);
+  --k-a5f3fc-95: rgba(14, 116, 144, 0.95);
+  --k-34d399: #059669;
+  --k-34d399-07: rgba(5, 150, 105, 0.07);
+  --k-34d399-08: rgba(5, 150, 105, 0.08);
+  --k-34d399-10: rgba(5, 150, 105, 0.1);
+  --k-34d399-13: rgba(5, 150, 105, 0.13);
+  --k-34d399-20: rgba(5, 150, 105, 0.2);
+  --k-34d399-30: rgba(5, 150, 105, 0.3);
+  --k-34d399-45: rgba(5, 150, 105, 0.45);
+  --k-34d399-50: rgba(5, 150, 105, 0.5);
+  --k-34d399-60: rgba(5, 150, 105, 0.6);
+  --k-34d399-80: rgba(5, 150, 105, 0.8);
+  --k-34d399-90: rgba(5, 150, 105, 0.9);
+  --k-6ee7b7: #047857;
+  --k-60a5fa: #2563eb;
+  --k-a3e635: #4d7c0f;
+  --k-a3e635-05: rgba(77, 124, 15, 0.05);
+  --k-a3e635-06: rgba(77, 124, 15, 0.06);
+  --k-a3e635-07: rgba(77, 124, 15, 0.07);
+  --k-a3e635-08: rgba(77, 124, 15, 0.08);
+  --k-a3e635-30: rgba(77, 124, 15, 0.3);
+  --k-a3e635-35: rgba(77, 124, 15, 0.35);
+  --k-a3e635-45: rgba(77, 124, 15, 0.45);
+  --k-fbbf24: #b45309;
+  --k-fbbf24-06: rgba(180, 83, 9, 0.06);
+  --k-fbbf24-07: rgba(180, 83, 9, 0.07);
+  --k-fbbf24-12: rgba(180, 83, 9, 0.12);
+  --k-fbbf24-25: rgba(180, 83, 9, 0.25);
+  --k-fbbf24-30: rgba(180, 83, 9, 0.3);
+  --k-fbbf24-35: rgba(180, 83, 9, 0.35);
+  --k-fbbf24-40: rgba(180, 83, 9, 0.4);
+  --k-fbbf24-60: rgba(180, 83, 9, 0.6);
+  --k-fde68a: #92400e;
+  --k-fb7185: #e11d48;
+  --k-fb7185-06: rgba(225, 29, 72, 0.06);
+  --k-fb7185-08: rgba(225, 29, 72, 0.08);
+  --k-fb7185-12: rgba(225, 29, 72, 0.12);
+  --k-fb7185-22: rgba(225, 29, 72, 0.22);
+  --k-fb7185-35: rgba(225, 29, 72, 0.35);
+  --k-fb7185-40: rgba(225, 29, 72, 0.4);
+  --k-fb7185-45: rgba(225, 29, 72, 0.45);
+}
+
+/* ---------- Recording + Documents entry points (coming soon): quiet, clearly optional ---------- */
+.related-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.related-add { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px 7px 9px; border-radius: 11px; cursor: pointer; font: 600 14px/1 var(--font);
+  color: var(--ink-2); background: none; border: 1px dashed color-mix(in srgb, var(--c-violet) 45%, transparent); }
+.related-add:hover { color: var(--ink); border-style: solid; background: color-mix(in srgb, var(--c-violet) 8%, transparent); }
+.related-add:focus-visible { outline: 2px solid var(--c-violet); outline-offset: 2px; }
+.related-add svg { width: 15px; height: 15px; color: var(--c-violet); }
+.related-kinds { font-size: 13px; color: var(--ink-3); }
+.soon-tag.sm { padding: 3px 8px; font-size: 10.5px; }
+.res-head .related-row { flex-basis: 100%; margin-top: 2px; }
+
+/* ---------- upload: soft audio ripples that start just outside the icon and fade as they spread ---------- */
+.dz-icon { isolation: isolate; }
+.dz-orbit { position: absolute; left: 50%; top: 50%; width: 0; height: 0; inset: auto; display: block; z-index: -1; pointer-events: none; }
+.dz-orbit span { position: absolute; left: -210px; top: -210px; width: 420px; height: 420px; border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--c-cyan) 40%, transparent); opacity: 0; transform: scale(.24);
+  animation: dz-ripple 6s cubic-bezier(.25, .6, .35, 1) infinite; }
+.dz-orbit span:nth-child(1) { width: 420px; height: 420px; }
+.dz-orbit span:nth-child(2) { width: 420px; height: 420px; border-color: color-mix(in srgb, var(--c-violet) 40%, transparent); animation-delay: -2s; }
+.dz-orbit span:nth-child(3) { width: 420px; height: 420px; border-color: color-mix(in srgb, var(--c-pink) 36%, transparent); animation-delay: -4s; }
+@keyframes dz-ripple { 0% { transform: scale(.24); opacity: 0; } 12% { opacity: .5; } 70% { opacity: .14; } 100% { transform: scale(1); opacity: 0; } }
+.dropzone:hover .dz-orbit span { animation-duration: 4.5s; }
+.dropzone.over .dz-orbit span { animation-duration: 1.8s; border-color: color-mix(in srgb, var(--c-cyan) 60%, transparent); }
+.dz-title, .dz-sub { position: relative; z-index: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .dz-orbit span { animation: none; opacity: .18; }
+  .dz-orbit span:nth-child(1) { transform: scale(.36); } .dz-orbit span:nth-child(2) { transform: scale(.58); } .dz-orbit span:nth-child(3) { transform: scale(.82); opacity: .1; }
+}

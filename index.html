@@ -63,9 +63,9 @@
         <div class="panel drop-card">
           <label class="dropzone" id="dropzone" for="fileInput">
             <input type="file" id="fileInput" accept="audio/*,video/*,.m4a,.mp3,.mp4,.wav,.ogg,.opus,.webm,.aac,.flac,.mov,.amr,.3gp" hidden />
-            <div class="dz-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
             <div class="dz-inner">
               <div class="dz-icon">
+                <div class="dz-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
                 <!-- sparkscribe:mark -->
                 <span class="dz-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 19V6m0 0-5 5m5-5 5 5"/></svg></span>
               </div>
@@ -247,6 +247,7 @@
           <div><b>One time only.</b> The speech model is saved in this browser, so your next recordings start much faster. Your audio still never leaves your device.</div>
         </div>
         <details class="dl-details hidden" id="dlDetails"><summary>Details</summary><div class="downloads" id="downloads"></div></details>
+        <div class="related-slot" id="relatedProcessing"></div>
       </section>
 
       <!-- ===== RESULTS ===== -->
@@ -269,6 +270,7 @@
             <button class="btn btn-primary" id="newBtn" type="button">New file</button>
           </div>
           <div class="save-bar hidden" id="saveBar" aria-live="polite"></div>
+          <div class="related-slot" id="relatedResult"></div>
         </div>
 
         <div class="next-steps hidden" id="nextSteps" role="region" aria-labelledby="nextStepsTitle"></div>

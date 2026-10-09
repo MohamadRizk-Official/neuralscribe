@@ -7,15 +7,16 @@
 
 export const THEME_KEY = 'sparkscribe.theme';
 export const THEME_MODES = ['system', 'light', 'dark'];
+export const THEME_DEFAULT = 'light'; // new visitors start in Light; System and Dark stay one click away
 
 // Plain ES5 on purpose: it runs before any module, in every browser.
-export const THEME_BOOT = `<script>(function(){var d=document.documentElement,p='system';try{p=localStorage.getItem('${THEME_KEY}')||'system'}catch(e){}
+export const THEME_BOOT = `<script>(function(){var d=document.documentElement,p='light';try{p=localStorage.getItem('${THEME_KEY}')||'light'}catch(e){}
 var t=p==='light'||p==='dark'?p:(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');d.setAttribute('data-theme',t);d.setAttribute('data-theme-pref',p)})();</script>`;
 
 const system = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: light)') : null;
 
 export function getThemePref() {
-  try { const v = localStorage.getItem(THEME_KEY); return THEME_MODES.includes(v) ? v : 'system'; } catch { return 'system'; }
+  try { const v = localStorage.getItem(THEME_KEY); return THEME_MODES.includes(v) ? v : THEME_DEFAULT; } catch { return THEME_DEFAULT; }
 }
 export function resolvedTheme(pref = getThemePref()) {
   return pref === 'light' || pref === 'dark' ? pref : (system?.matches ? 'light' : 'dark');

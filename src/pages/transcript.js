@@ -10,6 +10,7 @@ import { renameTranscript, setFavorite, deleteTranscripts, markOpened, getRecord
 import { promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
 import { segmentsFromRow, segmentsToStored, fmtClock, RECORDING_TYPES, RECORDING_TYPE_LABEL } from '../lib/segments.js';
 import { toggleDetails } from '../lib/details-pop.js';
+import { relatedMaterialHtml, bindRelatedMaterial } from '../lib/related-material.js';
 import { cleanText } from '../lib/clean.js';
 import { mountInsights } from '../insights/insights.js';
 
@@ -84,7 +85,7 @@ function initials(name) {
     $('detailsBtn').addEventListener('click', (e) => toggleDetails(e.currentTarget, 'Recording details', [
       ['Length', fmtDuration(row.duration_seconds)],
       segments.length && ['Speakers', String(real), segments.some((x) => x.speaker === 'Unknown') ? 'plus some unclear parts' : ''],
-      ['Recording type', RECORDING_TYPE_LABEL[recordingType] || 'Auto'],
+      ['Recording type', RECORDING_TYPE_LABEL[recordingType] || (document.getElementById('typeSlot')?.innerText.replace(/^Type\s*/i, '').replace(/\s+/g, ' ').trim() || 'Auto')],
       row.language && ['Language', langName(row.language)],
       ['Words', words.toLocaleString()],
       ['Saved', fmtDate(row.created_at)],
@@ -92,6 +93,8 @@ function initials(name) {
     ]));
   }
   renderHeader();
+  $('relatedResult').innerHTML = relatedMaterialHtml('result');
+  bindRelatedMaterial($('relatedResult'));
 
   // ---- transcript (Original / Clean) ----
   const rtl = RTL_LANGS.has(row.language);

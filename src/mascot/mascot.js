@@ -294,6 +294,7 @@ export function mountMascot({ page = 'other' } = {}) {
     if (mode === 'stand') Y = lerp(FLOOR() - support(roll + P[K.sr]) * k, peekY(), ss(peekK));
     if (glideTo != null) { if (mode !== 'stand' || loco || grab) glideTo = null; else { X += (glideTo - X) * (1 - Math.exp(-dt * 5)); if (Math.abs(glideTo - X) < 0.5) { X = glideTo; glideTo = null; } } }
     stepSecondary(dt);
+    if (mood === 'working' && clock > gazeAt && (mode === 'perch' || mode === 'stand') && !grab) { gazeAt = clock + 0.5; watchProgress(0.9); }
     stepEye(dt);
     autonomy();
     if (perchWanted && mode === 'stand' && !taskActive && !grab && clock - perchCheckAt > 0.5) {
@@ -345,9 +346,12 @@ export function mountMascot({ page = 'other' } = {}) {
   // ---------- ground: walking / running, climbing ----------
   const WALK = 80, RUN = 290;
   // ---------- the quiz card: it jumps up and hangs from the card's top corner by one arm ----------
+  // While a recording is being transcribed the processing panel is its place: it hangs from the panel's top
+  // corner and watches the progress bar.
   const PERCH_SEL = '.study.quiz .q-card';
+  const perchEl = () => document.querySelector(PERCH_SEL) || (mood === 'working' ? document.getElementById('progressPanel') : null);
   function perchAnchor() {
-    const el = document.querySelector(PERCH_SEL);
+    const el = perchEl();
     if (!el) return null;
     const r = el.getBoundingClientRect();
     if (!r.width) return null;
@@ -400,7 +404,18 @@ export function mountMascot({ page = 'other' } = {}) {
     await until(() => mode !== 'leap', id);
     const q = document.querySelector('.study.quiz .q-text')?.getBoundingClientRect();
     if (q) lookAt(q.left + q.width / 2, q.top + q.height / 2, 2.5);
+    else if (mood === 'working') watchProgress(2);
   }
+  // where the progress bar has got to: its eye follows that point, the body stays put
+  function progressPoint() {
+    const track = document.querySelector('#progressPanel .bar');
+    const bar = document.getElementById('pctBar');
+    if (!track || !bar || track.offsetParent === null) return null;
+    const r = track.getBoundingClientRect();
+    const p = Math.max(0, Math.min(100, parseFloat(bar.style.width) || 0));
+    return { x: r.left + (r.width * p) / 100, y: r.top + r.height / 2 };
+  }
+  function watchProgress(sec = 1.2) { const pt = progressPoint(); if (pt) lookAt(pt.x, pt.y, sec); }
   // ---------- homepage entrance (first homepage visit in a session) ----------
   // It hides behind the last output card (Ask) on the home page: a hand comes up over the card's top edge and grabs it, the bolt peeks
   // out, then the speaker; it looks around, the other hand grabs, it pulls itself up, hops out, lands with a
@@ -585,6 +600,17 @@ export function mountMascot({ page = 'other' } = {}) {
     await wait(rand(0.3, 0.7), id);
     if (Math.abs(yaw) > 0.05) await turnTo(0, id);
     anim.setBase(moodBase(), {}, 0.3);
+    if (mood === 'working') await backToWork(id);
+  }
+  // after being thrown during transcription: a pause, it notices the panel, then walks back and climbs up
+  async function backToWork(id) {
+    await wait(rand(0.8, 1.3), id);
+    const p = document.getElementById('progressPanel')?.getBoundingClientRect();
+    if (!p || !p.width) return;
+    lookAt(p.left + p.width / 2, p.top + p.height / 2, 1.4);
+    E.flash('curious', 900);
+    await wait(0.9, id);
+    await workLoop(id, true);
   }
   // getting up from its side: a real sequence, never a flip
   async function getUp(id) {
@@ -595,6 +621,7 @@ export function mountMascot({ page = 'other' } = {}) {
     if (dizzyNext) { dizzyNext = false; fx('dizzy'); }
     await act(CLIPS.getUp(s), id, { fadeIn: 0.2, onEnd: () => { roll = 0; anim.setBase(moodBase(), {}, 0.01); } });
     E.pulse(1); E.flash('happy', 700);
+    if (mood === 'working') await backToWork(id);
   }
 
   // ---------- secondary motion: settle after stops, gem wobble, impact squash ----------
@@ -775,8 +802,10 @@ export function mountMascot({ page = 'other' } = {}) {
       await go(Math.min(r.right + 1.8 * k, maxX()), id);
     }
     anim.setBase('working', {}, 0.4);
+    if (walk && !quiet() && !touch && !calm() && mood === 'working') { await wait(0.4, id); await perchOn(id); }
     for (;;) {
       await wait(rand(3, 6), id);
+      if (mode === 'perch') { if (Math.random() < 0.35) E.pulse(1); continue; }   // up there it only watches (the eye follows the bar)
       if (quiet() && Math.random() < 0.6) continue;
       const p = document.getElementById('progressPanel');
       // what it does follows the stage: watches the bar while the model downloads, listens while the
@@ -795,7 +824,7 @@ export function mountMascot({ page = 'other' } = {}) {
       else if (a === 'sit') { anim.setBase('sit', {}, 0.7); await wait(rand(5, 9), id); const q = act(CLIPS.pressUp, id); anim.setBase('working', {}, 0.01); await q; }
     }
   }
-  let workSince = 0, workStage = '';
+  let workSince = 0, workStage = '', gazeAt = 0;
 
   // ---------- cursor: the speaker follows it; sometimes a small reaction ----------
   let hovering = false, hoverAt = 0, nearSince = 0, lastMove = null;
@@ -1012,14 +1041,19 @@ export function mountMascot({ page = 'other' } = {}) {
       run((id) => workLoop(id, true));
     },
     'transcribe-done': () => {
+      const pct = document.getElementById('pctNum')?.getBoundingClientRect();
+      if (pct?.width) lookAt(pct.left + pct.width / 2, pct.top + pct.height / 2, 0.8);   // notices the 100%
+      E.surprise();
       setMood('celebrating');
-      E.flash('success', 1800); E.gem('success', 1600); E.pulse(3);
-      run(async (id) => {
+      const celebrate = () => run(async (id) => {
+        await wait(0.25, id);                     // a beat of anticipation
+        E.flash('success', 1800); E.gem('success', 1600); E.pulse(3);
         await ready(id);
         setTimeout(() => fx('sparkles'), 380);
         await act(CLIPS.celebrate, id);
         setMood('idle');
       });
+      if (mode === 'perch' || mode === 'leap') releasePerch(celebrate); else celebrate();
     },
     'results-shown': () => { readingMode = true; run(async (id) => { await runIn(id); afterAction(7000); }); },
     reset: () => { readingMode = readingPage; toIdle(); if (!moved) run((id) => go(homeX(), id)); },

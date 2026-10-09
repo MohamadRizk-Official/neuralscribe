@@ -374,12 +374,14 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
       const can = typeof ctx.signIn === 'function';
       panel.innerHTML = `<div class="panel ins-card ins-gate">
         <div class="ins-gate-icon">${ICON.spark}</div>
-        <h3>Summaries, notes, answers and more</h3>
-        <p>Get a summary, organized notes, answers about this recording and things made from it, like study guides or reply drafts. These are saved with the transcript, so ${can ? 'they need' : 'it needs'} your free account.</p>
-        ${can ? '<button class="btn btn-primary" type="button" data-act="signin">Sign in to continue</button>' : ''}
+        <h3>Keep going with this recording</h3>
+        <ul class="gate-chips" aria-label="With a free account"><li>Summary</li><li>Notes</li><li>Ask</li><li>Quiz</li><li>Flashcards</li><li>Study Guide</li></ul>
+        <p>Create a free account to save this transcript and use SparkScribe's AI tools on it.</p>
+        ${can ? '<button class="btn btn-primary" type="button" data-act="signup">Create free account</button><p class="gate-alt">Already have one? <button class="link-btn" type="button" data-act="signin">Sign in</button></p>' : ''}
         ${ctx.savedNote?.() || ''}
       </div>`;
       panel.querySelector('[data-act="signin"]')?.addEventListener('click', () => ctx.signIn());
+      panel.querySelector('[data-act="signup"]')?.addEventListener('click', () => ctx.signIn('signup'));
       return true;
     }
     if (st.stateError) {
