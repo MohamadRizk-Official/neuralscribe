@@ -30,6 +30,7 @@ const TASKS = {
   interview_qa: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 12000 },
   episode_notes: { env: 'AI_MODEL_TOOLS', effort: 'medium', maxTokens: 12000 },
   ask: { env: 'AI_MODEL_ASK', effort: 'low', maxTokens: 3000 },
+  grade: { env: 'AI_MODEL_TOOLS', effort: 'low', maxTokens: 1500 },   // quiz short answers: tiny prompts
   expand: { env: 'AI_MODEL_ASK', effort: 'low', maxTokens: 600 },
 };
 

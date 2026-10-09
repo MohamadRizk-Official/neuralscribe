@@ -17,7 +17,7 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%2305060f'/%3E%3Cg stroke='url(%23g)' stroke-width='5' stroke-linecap='round'%3E%3Cline x1='14' y1='28' x2='14' y2='36'/%3E%3Cline x1='23' y1='20' x2='23' y2='44'/%3E%3Cline x1='32' y1='12' x2='32' y2='52'/%3E%3Cline x1='41' y1='22' x2='41' y2='42'/%3E%3Cline x1='50' y1='27' x2='50' y2='37'/%3E%3C/g%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playpen+Sans:wght@400..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -27,17 +27,13 @@
       <div class="bg-glow bg-glow-b"></div>
       <div class="bg-glow bg-glow-c"></div>
       <div class="bg-noise"></div>
-      <div class="bg-cursor" id="bgCursor"></div>
     </div>
 
     <header class="topbar">
-      <a class="brand" href="/" aria-label="SparkScribe home">
-        <svg class="brand-mark spark-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><defs><linearGradient id="sparkGrad" gradientUnits="userSpaceOnUse" x1="2" y1="0" x2="38" y2="0"><stop offset="0" stop-color="#22d3ee"/><stop offset=".55" stop-color="#a78bfa"/><stop offset="1" stop-color="#f472b6"/></linearGradient></defs><rect class="sb sb-o" x="2" y="14" width="4" height="12" rx="2"/><rect class="sb sb-i" x="9" y="9" width="4" height="22" rx="2"/><path class="sbolt" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><path class="sbolt-hi" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><rect class="sb sb-i" x="27" y="10" width="4" height="20" rx="2"/><rect class="sb sb-o" x="34" y="15" width="4" height="10" rx="2"/></svg>
-        <span class="brand-name">Spark<b>Scribe</b></span>
-      </a>
+      <!-- sparkscribe:brand -->
       <div class="topbar-right">
         <span class="chip chip-device" id="deviceChip" role="button" tabindex="0" title="Where the AI runs"><span class="dot"></span>detecting…</span>
-        <span class="chip chip-muted hide-sm" title="Audio is decoded and transcribed on this device and never uploaded. If you're signed in, the finished transcript text is saved to your account. Summary, Notes, Ask and Insights send transcript text (never audio) to our AI provider, only when you use them."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>audio stays on this device</span>
+        <span class="chip chip-muted hide-sm" title="Audio is decoded and transcribed on this device and never uploaded. If you're signed in, the finished transcript text is saved to your account. Summary, Notes, Ask and Create send transcript text (never audio) to our AI provider, Anthropic, only when you use them. More in Settings → Privacy."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>audio stays on this device</span>
         <div id="accountSlot"></div>
       </div>
     </header>
@@ -47,7 +43,7 @@
       <section class="landing" id="dropPanel">
       <div class="hero">
         <div class="hero-text">
-          <h1>Who said <span class="grad">what</span>.</h1>
+          <h1>Who said <span class="echo" id="heroEcho"><span class="echo-ghost g1" aria-hidden="true">what.</span><span class="echo-ghost g2" aria-hidden="true">what.</span><span class="echo-ghost g3" aria-hidden="true">what.</span><span class="echo-main"><span class="grad">what</span>.</span></span></h1>
           <p>Drop a recording. Get a speaker-aware transcript, a summary and tools to use it.</p>
           <ul class="pills">
             <li><svg class="pill-safe" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>Audio stays on your device</li>
@@ -62,7 +58,7 @@
             <div class="dz-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
             <div class="dz-inner">
               <div class="dz-icon">
-                <svg class="spark-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><rect class="sb sb-o" x="2" y="14" width="4" height="12" rx="2"/><rect class="sb sb-i" x="9" y="9" width="4" height="22" rx="2"/><path class="sbolt" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><path class="sbolt-hi" d="M22.8 1.5 16 21.4h4l-2.8 17.1 6.8-20.9h-4.2z"/><rect class="sb sb-i" x="27" y="10" width="4" height="20" rx="2"/><rect class="sb sb-o" x="34" y="15" width="4" height="10" rx="2"/></svg>
+                <!-- sparkscribe:mark -->
                 <span class="dz-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 19V6m0 0-5 5m5-5 5 5"/></svg></span>
               </div>
               <div class="dz-title"><span class="dz-rest">Drop a file or <u>browse</u></span><span class="dz-over">Drop to transcribe</span></div>
@@ -94,13 +90,16 @@
 
           <details class="advanced" id="advanced">
             <summary>
+              <span class="adv-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></span>
               <span class="adv-title">Advanced settings</span>
-              <span class="adv-summary mono" id="advSummary"></span>
+              <span class="adv-summary" id="advSummary"></span>
+              <svg class="adv-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
-            <div class="adv-grid">
-              <div class="control">
-                <label for="speakersSelect">Speakers</label>
-                <select id="speakersSelect">
+            <div class="adv-body">
+              <div class="adv-row">
+                <div class="control">
+                  <label for="speakersSelect">Speakers <span class="info" tabindex="0" role="note" aria-label="If you know how many people talk, labels get more accurate. You can fix speakers afterwards." data-tip="If you know how many people talk, labels get more accurate. You can fix speakers afterwards.">i</span></label>
+                  <select id="speakersSelect">
                   <option value="auto" selected>Auto-detect</option>
                   <option value="1">1 person</option>
                   <option value="2">2 people</option>
@@ -114,45 +113,39 @@
                   <option value="10">10 people</option>
                   <option value="off">Don't label speakers</option>
                 </select>
-              </div>
-              <div class="control">
-                <label for="recTypeSelect">Recording type</label>
-                <select id="recTypeSelect">
-                  <option value="" selected>Not set</option>
-                  <option value="general">General</option>
-                  <option value="lecture">Lecture</option>
-                  <option value="meeting">Meeting</option>
-                  <option value="interview">Interview</option>
-                  <option value="podcast">Podcast</option>
-                  <option value="voice_message">Voice Message</option>
-                </select>
-              </div>
-              <div class="control">
-                <label for="modelSelect">Speech model</label>
-                <select id="modelSelect">
+                </div>
+                <div class="control">
+                  <label for="modelSelect">Speech model <span class="info" tabindex="0" role="note" aria-label="Automatic follows the Fast / Best Accuracy choice above. Pick one only for unusual cases." data-tip="Automatic follows the Fast / Best Accuracy choice above. Pick one only for unusual cases.">i</span></label>
+                  <select id="modelSelect">
                   <option value="" selected>Automatic (matches mode)</option>
                   <option value="tiny">Whisper tiny</option>
                   <option value="base">Whisper base</option>
                   <option value="small">Whisper small</option>
                   <option value="turbo">Whisper large-v3 turbo</option>
                 </select>
+                </div>
               </div>
-              <div class="control control-wide">
-                <label for="vocabInput">Important words</label>
-                <textarea id="vocabInput" rows="2" spellcheck="false" placeholder="Hadi Salame, SparkScribe, biomechanics, Qazzaz"></textarea>
-                <p class="help">Add names, technical terms, course vocabulary, company names, or words that may be difficult to recognize. Separate them with commas. They're given to the speech model as a spelling hint, which helps but isn't guaranteed.</p>
+              <div class="control">
+                <label for="vocabEntry">Important words <span class="info" tabindex="0" role="note" aria-label="Names, terms, course vocabulary or company names SparkScribe should spell right." data-tip="Names, terms, course vocabulary or company names SparkScribe should spell right.">i</span></label>
+                <div class="chips-input" id="vocabChips">
+                  <ul class="chip-list" id="vocabList" aria-label="Important words"></ul>
+                  <input id="vocabEntry" type="text" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="e.g. Hadi Salame, biomechanics — Enter or comma" />
+                </div>
+                <textarea id="vocabInput" hidden></textarea>
               </div>
             </div>
-            <p class="help">Speaker labels are automatic and can be wrong. If you know how many people are talking, choosing it here makes them more accurate, and you can rename or fix speakers after transcription.</p>
           </details>
         </div>
       </div>
 
         <section class="hear" aria-labelledby="hearTitle">
-          <h2 id="hearTitle">Hear it. <span class="hear-mid">Understand it.</span> <span class="grad">Use it.</span></h2>
+          <div class="hear-head">
+            <h2 id="hearTitle">Hear it. <span class="hear-mid">Understand it.</span> <span class="grad">Use it.</span></h2>
+            <p class="hear-sub">Every saved recording opens with five tabs: <b>Transcript</b> · <b>Summary</b> · <b>Notes</b> · <b>Ask</b> · <b>Create</b></p>
+          </div>
           <div class="hear-grid">
             <article class="hear-card">
-              <header><span class="hear-ic cyan" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h2m3-5v10m3-13v16m3-11v6m3-3h2"/></svg></span><div><h3>Transcribe</h3><p>Speaker-aware, with timestamps</p></div></header>
+              <header><span class="hear-ic cyan" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h2m3-5v10m3-13v16m3-11v6m3-3h2"/></svg></span><div><span class="hear-step s1">Hear it</span><h3>Transcribe</h3><p>Speaker-aware, with timestamps</p></div><span class="hear-tab mono">Transcript</span></header>
               <div class="hear-demo hear-lines">
                 <div><span class="mono t1">0:04</span><span><b class="s1">Speaker 1</b> Let’s move the beta to Friday.</span></div>
                 <div class="hl"><span class="mono t2">0:09</span><span><b class="s2">Speaker 2</b> I’ll update the invite list today.</span></div>
@@ -160,7 +153,7 @@
               </div>
             </article>
             <article class="hear-card">
-              <header><span class="hear-ic violet" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></span><div><h3>Understand</h3><p>Summary, Notes and Ask</p></div></header>
+              <header><span class="hear-ic violet" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></svg></span><div><span class="hear-step s2">Understand it</span><h3>Understand</h3><p>Overview, key notes, answers</p></div><span class="hear-tab mono">Summary · Notes · Ask</span></header>
               <div class="hear-tabs" role="tablist" aria-label="Understand example">
                 <button type="button" role="tab" aria-selected="false" data-hear="summary">Summary</button>
                 <button type="button" role="tab" aria-selected="false" data-hear="notes">Notes</button>
@@ -173,15 +166,17 @@
               </div>
             </article>
             <article class="hear-card">
-              <header><span class="hear-ic pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span><div><h3>Create</h3><p>Study Guides, Quizzes, Recaps, Drafts</p></div></header>
+              <header><span class="hear-ic pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/></svg></span><div><span class="hear-step s3">Use it</span><h3>Create</h3><p>Quizzes, study tools, recaps, drafts</p></div><span class="hear-tab mono">Create</span></header>
               <div class="hear-chips" role="group" aria-label="Create example">
                 <button type="button" aria-pressed="true" data-make="quiz">Quiz</button>
+                <button type="button" aria-pressed="false" data-make="cards">Flashcards</button>
                 <button type="button" aria-pressed="false" data-make="guide">Study Guide</button>
                 <button type="button" aria-pressed="false" data-make="recap">Meeting Recap</button>
                 <button type="button" aria-pressed="false" data-make="draft">Draft</button>
               </div>
               <div class="hear-demo" data-hear-panel="create">
                 <div data-for="quiz"><p class="q">When is the beta launching?</p><p class="opt right">Friday <span aria-hidden="true">✓</span></p><p class="opt">Next Monday</p></div>
+                <div data-for="cards" hidden><div class="flash"><span class="mono flash-side">Front</span><p>When is the beta launching?</p></div><div class="flash back"><span class="mono flash-side">Back</span><p>Friday</p></div></div>
                 <div data-for="guide" hidden><p><b>Study Guide · Beta launch</b></p><p class="dim">1. Timeline: the beta moves to Friday</p><p class="dim">2. Owners: invite list, Speaker 2</p></div>
                 <div data-for="recap" hidden><p><b>Meeting Recap</b></p><p class="dim">1 decision · 1 action item · 1 deadline</p><p class="dim">Next: send the invite list before lunch</p></div>
                 <div data-for="draft" hidden><p class="draft">“Hi team, quick recap: the beta moves to Friday, and the updated invite list goes out today.”</p></div>
@@ -317,10 +312,6 @@
 
     <audio id="player" preload="metadata"></audio>
     <div class="menu hidden" id="menu" role="menu"></div>
-
-    <footer class="foot mono">
-      Audio stays on your device · transcripts you save are private to your account · AI features send transcript text (never audio) to our AI provider, Anthropic, only when you use them
-    </footer>
 
     <script type="module" src="/src/main.js"></script>
   </body>

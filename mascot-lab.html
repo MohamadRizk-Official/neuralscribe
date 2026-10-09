@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mascot lab (dev only)</title>
+  <style>
+    body { margin: 0; background: #070914; color: #cbd5ff; font: 13px system-ui; }
+    .grid { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; }
+    .cell { text-align: center; }
+    canvas { width: 300px; height: 300px; background: radial-gradient(circle at 50% 40%, #141a3a, #070914); border-radius: 12px; display: block; }
+  </style>
+</head>
+<body>
+  <!-- Not part of the build (vite.config.js lists the real pages). Used to look at the mascot model and poses. -->
+  <div class="grid" id="grid"></div>
+  <script type="module">
+    import { createStage } from '/src/mascot/stage.js';
+    import { Animator, CLIPS, CYCLES, sampleClip, REST, pose, K } from '/src/mascot/motion.js';
+    const views = [];
+    window.__lab = {
+      add(label, fn) {
+        const cell = document.createElement('div'); cell.className = 'cell';
+        const cv = document.createElement('canvas'); cell.append(cv, Object.assign(document.createElement('div'), { textContent: label }));
+        document.getElementById('grid').append(cell);
+        const st = createStage(cv); st.resize(300, 1);
+        views.push({ st, fn });
+        return st;
+      },
+      draw(t = 0) {
+        for (const v of views) { const r = v.fn(t) || {}; v.st.apply(r.P || REST, r.yaw || 0, r.roll || 0); if (r.eye) v.st.m.expr.setEye(...r.eye); if (r.expr) v.st.m.expr.setBase(r.expr); v.st.render(r.dt ?? 0.5); }
+      },
+      clipAt(name, t, side) { const c = typeof CLIPS[name] === 'function' ? CLIPS[name](side) : CLIPS[name]; return sampleClip(c, t, REST.slice()); },
+      cycAt(name, t, prm = {}) { const o = REST.slice(); CYCLES[name](t, prm, o); return o; },
+      pose, K, Animator, CLIPS,
+    };
+  </script>
+</body>
+</html>

@@ -4,13 +4,14 @@
 // Used by the live result page (src/main.js) and the saved transcript page (src/pages/transcript.js).
 // The transcript stays the source of truth: everything here is generated from it on request, stored with
 // it, and every reference points back to a real line and timestamp.
-import { fetchState, requestInsight, requestTool, askQuestion, ApiError } from './api.js';
+import { fetchState, requestInsight, requestTool, askQuestion, gradeAnswer, ApiError } from './api.js';
 import { createToolsUI, artifactBlocks, blocksToText, TOOL_INFO, toolsFor } from './tools.js';
 import { openExportDialog } from './export.js';
 import { cleanText } from '../lib/clean.js';
 import { supabase } from '../lib/supabase.js';
 import { normalizeToolSettings, describeSettings } from '../lib/tool-settings.js';
 import { makeDialog } from '../library/dialogs.js';
+import { mascotSignal } from '../mascot/bus.js';
 import { fmtClock, splitCitations, RECORDING_TYPES, RECORDING_TYPE_LABEL, normalizeRecordingType, isNotFound, refersToPlayback } from '../lib/segments.js';
 
 const CONSENT_KEY = 'sparkscribe.aiConsent';
@@ -73,6 +74,14 @@ const SECTION_LABEL = {
   definitions: 'Definitions', important_topics: 'Important topics', exam_points: 'Explicit exam information', worth_reviewing: 'Worth reviewing',
   questions: 'Questions & answers', major_topics: 'Major topics', notable_quotes: 'Important quotes', key_takeaways: 'Key takeaways',
   main_topics: 'Main topics', important_information: 'Key information', requested_actions: 'Requested actions', dates_times: 'Dates & times',
+};
+// Notes groups get one restrained accent each: actions cyan, dates violet, decisions blue, questions pink
+const SECTION_ACCENT = {
+  action_items: 'cyan', requested_actions: 'cyan', follow_ups: 'cyan',
+  important_dates: 'violet', dates_times: 'violet',
+  decisions: 'blue', priorities: 'blue',
+  open_questions: 'pink', questions: 'pink', concerns: 'pink',
+  important_information: 'key', key_takeaways: 'key', key_concepts: 'key', definitions: 'key', exam_points: 'key',
 };
 const SECTION_NOTE = {
   decisions: 'Only where agreement or a decision was stated, with the words that show it.',
@@ -141,7 +150,21 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
   const TABS = [['transcript', 'Transcript'], ['summary', 'Summary'], ['notes', 'Notes'], ['ask', 'Ask'], ['create', 'Create']];
   tabBar.className = 'tabs';
   tabBar.setAttribute('role', 'tablist');
-  tabBar.innerHTML = TABS.map(([k, label]) => `<button class="tab${k === 'transcript' ? ' on' : ''}" type="button" role="tab" data-tab="${k}" aria-selected="${k === 'transcript'}">${label}</button>`).join('');
+  tabBar.innerHTML = TABS.map(([k, label]) => `<button class="tab${k === 'transcript' ? ' on' : ''}" type="button" role="tab" data-tab="${k}" aria-selected="${k === 'transcript'}">${label}</button>`).join('')
+    + '<span class="tab-ink" aria-hidden="true"></span>';
+  // one soft highlight that slides to the active tab
+  const ink = tabBar.querySelector('.tab-ink');
+  function moveInk() {
+    const on = tabBar.querySelector('.tab.on');
+    if (!on || !on.offsetWidth) return;
+    ink.style.width = `${on.offsetWidth}px`;
+    ink.style.transform = `translateX(${on.offsetLeft}px)`;
+    tabBar.classList.add('has-ink');
+  }
+  requestAnimationFrame(moveInk);
+  addEventListener('resize', moveInk, { passive: true });
+  document.fonts?.ready.then(moveInk);
+  if ('ResizeObserver' in window) new ResizeObserver(moveInk).observe(tabBar);
   const panels = {};
   for (const k of ['summary', 'notes', 'ask', 'create']) {
     const p = document.createElement('section');
@@ -163,6 +186,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     if (!TABS.some(([k]) => k === name)) name = 'transcript';
     st.tab = name;
     tabBar.querySelectorAll('.tab').forEach((b) => { const on = b.dataset.tab === name; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
+    moveInk();
     transcriptEls.forEach((el) => el.classList.toggle('tab-hidden', name !== 'transcript'));
     for (const [k, p] of Object.entries(panels)) p.classList.toggle('hidden', k !== name);
     if (name !== 'transcript') { ensureLoaded(); render(); }
@@ -209,13 +233,16 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     st.busy.set(k, true);
     st.errors.delete(k);
     render();
+    mascotSignal('think-start');
     try {
       const r = await requestInsight(id, kind, t, force);
       st.insights.set(k, r.insight);
       if (r.insight.status === 'generating') poll(kind, t);
+      mascotSignal('think-done');
     } catch (err) {
       if (err.code === 'not_configured') st.notConfigured = true;
       st.errors.set(k, err);
+      mascotSignal('think-error');
     }
     st.busy.delete(k);
     render();
@@ -373,7 +400,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     const ovBusy = st.busy.has(key('overview')) || ov?.status === 'generating';
     const ovErr = st.errors.get(key('overview')) || (ov?.status === 'failed' ? { message: ov.error } : null);
     const long = (ctx.duration() || 0) >= CHAPTER_MIN_S;
-    let html = '<p class="tab-intro">A quick overview of what happened.</p>';
+    let html = '';
 
     if (!ov && !ovBusy && !ovErr) {
       html += `<div class="panel ins-card ins-intro">
@@ -383,25 +410,25 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
         <button class="btn btn-primary" type="button" data-act="overview">Summarize</button>
         ${privacyLine}
       </div>`;
+    } else if (ov?.status === 'ready' && ov.content && !ovBusy) {
+      const c = ov.content;
+      html += staleBox(ov, 'overview-retry');
+      html += `<section class="sum-tldr"><span class="sum-eyebrow">${ICON.spark}TL;DR</span><p>${esc(c.short_summary)}</p></section>`;
+      if (c.key_points?.length) {
+        html += `<section class="sum-sec" aria-labelledby="sumKp"><h3 class="sum-h" id="sumKp">Key points <span>${c.key_points.length}</span></h3>
+          <ol class="kp-grid">${c.key_points.map((k, i) => `<li class="kp-card"><span class="kp-n" aria-hidden="true">${i + 1}</span><span class="kp-text">${esc(k.text)}</span>${chips(k.refs, byId)}</li>`).join('')}</ol></section>`;
+      }
+      if (c.chapters?.length) {
+        html += `<section class="sum-sec" aria-labelledby="sumCh"><h3 class="sum-h" id="sumCh">Chapters <span>${c.chapters.length}</span></h3><ol class="chapters timeline">${c.chapters.map((ch) => {
+          const s = byId.get(ch.start_ref);
+          if (!s) return '';
+          return `<li><button type="button" class="chapter" data-seek="${s.start}" data-ref="${s.id}"><span class="ch-time">${fmtClock(s.start)}</span><span class="ch-body"><span class="ch-title">${esc(ch.title)}</span>${ch.summary ? `<span class="ch-sum">${esc(ch.summary)}</span>` : ''}</span></button></li>`;
+        }).join('')}</ol></section>`;
+      }
     } else {
       html += `<div class="panel ins-card">`;
       if (ovBusy) html += loading(long ? 'Generating summary, key points and chapters' : 'Generating summary and key points');
       else if (ovErr) html += errorBox(ovErr, 'overview-retry');
-      if (ov?.status === 'ready' && ov.content) {
-        const c = ov.content;
-        html += staleBox(ov, 'overview-retry');
-        html += `<div class="ins-label">${type() === 'voice_message' ? 'TL;DR' : 'Summary'}</div><div class="ins-summary"><p>${esc(c.short_summary)}</p></div>`;
-        if (c.key_points?.length) {
-          html += `<div class="ins-label">Key points</div><ul class="ins-points">${c.key_points.map((k) => `<li><span>${esc(k.text)}</span>${chips(k.refs, byId)}</li>`).join('')}</ul>`;
-        }
-        if (c.chapters?.length) {
-          html += `<div class="ins-label">Chapters</div><ol class="chapters">${c.chapters.map((ch) => {
-            const s = byId.get(ch.start_ref);
-            if (!s) return '';
-            return `<li><button type="button" class="chapter" data-seek="${s.start}" data-ref="${s.id}"><span class="ch-time">${fmtClock(s.start)}</span><span class="ch-body"><span class="ch-title">${esc(ch.title)}</span>${ch.summary ? `<span class="ch-sum">${esc(ch.summary)}</span>` : ''}</span></button></li>`;
-          }).join('')}</ol>`;
-        }
-      }
       html += `</div>`;
     }
 
@@ -412,13 +439,15 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     const dsBusy = st.busy.has(dk) || ds?.status === 'generating';
     const dsErr = st.errors.get(dk) || (ds?.status === 'failed' ? { message: ds.error } : null);
     if (ov?.status === 'ready' || ds) {
-      html += `<div class="panel ins-card">`;
+      if (ds?.status === 'ready' && ds.content && !dsBusy) {
+        html += `<details class="panel sum-detail"${st.detailOpen ? ' open' : ''}><summary><span class="sum-h">Detailed summary${t !== 'general' ? ` <span>${esc(RECORDING_TYPE_LABEL[t])}</span>` : ''}</span><span class="sum-detail-hint">${ds.content.sections.length} sections</span><svg class="sum-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="sum-detail-body">${staleBox(ds, 'detailed-retry')}${ds.content.sections.map((s) => `<h4 class="ins-h">${esc(s.heading)}</h4><ul class="ins-points">${s.points.map((pt) => `<li><span>${esc(pt.text)}</span>${chips(pt.refs, byId)}</li>`).join('')}</ul>`).join('')}</div></details>`;
+      }
+      html += `<div class="panel ins-card${ds?.status === 'ready' && ds.content && !dsBusy ? ' hidden' : ''}">`;
       if (dsBusy) html += loading('Writing detailed summary');
       else if (dsErr) html += errorBox(dsErr, 'detailed-retry');
       if (ds?.status === 'ready' && ds.content) {
-        html += staleBox(ds, 'detailed-retry');
-        html += `<div class="ins-label">Detailed summary${t !== 'general' ? ` <span>· ${esc(RECORDING_TYPE_LABEL[t])}</span>` : ''}</div>`;
-        html += ds.content.sections.map((s) => `<h4 class="ins-h">${esc(s.heading)}</h4><ul class="ins-points">${s.points.map((pt) => `<li><span>${esc(pt.text)}</span>${chips(pt.refs, byId)}</li>`).join('')}</ul>`).join('');
+        /* shown above as an expandable section */
       } else if (!dsBusy && !dsErr) {
         html += `<div class="ins-row"><div><div class="ins-label">Detailed summary</div><p class="ins-sub">A structured, section-by-section summary${t !== 'general' ? ` for a ${esc(RECORDING_TYPE_LABEL[t].toLowerCase())}` : ''}.</p></div><button class="btn btn-ghost" type="button" data-act="detailed">Write detailed summary</button></div>`;
       }
@@ -429,6 +458,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     p.querySelector('[data-act="overview-retry"]')?.addEventListener('click', () => generate('overview', { force: true }));
     p.querySelector('[data-act="detailed"]')?.addEventListener('click', () => generate('detailed_summary'));
     p.querySelector('[data-act="detailed-retry"]')?.addEventListener('click', () => generate('detailed_summary', { force: true }));
+    p.querySelector('.sum-detail')?.addEventListener('toggle', (e) => { st.detailOpen = e.currentTarget.open; });
   }
 
   // ---------- recording type control (page header) ----------
@@ -517,7 +547,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     const errKinds = parts.filter((k) => !busyOf(k) && errOf(k));
     const missing = parts.filter((k) => !ready(k) && !busyOf(k));
     const stale = [ins && 'insights', nt && 'notes'].filter((k) => k && st.contentVersion != null && ready(k).sourceVersion < st.contentVersion);
-    let html = '<p class="tab-intro">Important information organized from this recording.</p><div class="panel ins-card notes-card">';
+    let html = '<div class="panel ins-card notes-card">';
     if (busy) html += loading('Organizing your notes');
     if (errKinds.length) html += errorBox(errOf(errKinds[0]), 'notes-retry', "Part of your notes couldn't be created.");
     if (!ins && !nt) {
@@ -542,7 +572,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
       };
       const structuredHtml = () => (ins ? structuredSections(ins, t, both).map((sec) => {
         const items = ins.content[sec];
-        return `<section class="ins-sec"><div class="ins-label">${esc(SECTION_LABEL[sec])} <span>${items.length}</span></div>${SECTION_NOTE[sec] ? `<p class="ins-sub">${SECTION_NOTE[sec]}</p>` : ''}<ul class="ins-list">${items.map((it) => renderItem(sec, it, byId)).join('')}</ul></section>`;
+        return `<section class="ins-sec acc-${SECTION_ACCENT[sec] || 'plain'}"><div class="ins-label">${esc(SECTION_LABEL[sec])} <span>${items.length}</span></div>${SECTION_NOTE[sec] ? `<p class="ins-sub">${SECTION_NOTE[sec]}</p>` : ''}<ul class="ins-list">${items.map((it) => renderItem(sec, it, byId)).join('')}</ul></section>`;
       }).join('') : '');
       const body = STRUCTURED_FIRST.has(t) ? structuredHtml() + topicsHtml() : topicsHtml() + structuredHtml();
       html += body || '<p class="ins-none">Nothing to organize in this recording.</p>';
@@ -579,10 +609,12 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     const live = pending ? `<div class="ask-turn"><div class="ask-q">${esc(pending.question)}</div>${
       pending.error ? `<div class="ask-a">${errorBox(pending.error, 'ask-retry', "The answer couldn't be generated.")}</div>`
       : pending.text ? `<div class="ask-a streaming">${rich(pending.text, byId)}</div>`
-      : `<div class="ask-a">${loading(pending.status === 'searching' ? 'Finding the relevant parts of the recording' : 'Writing the answer')}</div>`}</div>` : '';
-    p.innerHTML = `<p class="tab-intro">Ask questions about anything said here.</p><div class="panel ins-card ask-card">
-      <div class="ask-thread" aria-live="polite">${thread || live ? thread + live : `<div class="ask-empty"><h3>Ask about this recording</h3><p>Answers are based on what was said, with the moments they rely on. When an answer is an interpretation, it says so.</p></div>`}</div>
-      <div class="ask-starters">${starters.map((s) => `<button type="button" class="starter" data-q="${esc(s)}"${pending && !pending.error ? ' disabled' : ''}>${esc(s)}</button>`).join('')}</div>
+      : `<div class="ask-a thinking" role="status"><span class="ask-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${pending.status === 'searching' ? 'Finding the moments that answer this…' : 'Writing the answer…'}</span></div>`}</div>` : '';
+    const empty = !(thread || live);
+    p.innerHTML = `<div class="panel ins-card ask-card${empty ? ' is-empty' : ''}">
+      <div class="ask-thread" aria-live="polite">${empty ? `<div class="ask-empty"><span class="ask-empty-ic" aria-hidden="true">${ICON.spark}</span><h3>Ask anything about this recording</h3><p>Answers come from what was said, with the moments they rely on.</p></div>` : thread + live}</div>
+      ${empty ? '<p class="ask-try">Try one of these</p>' : ''}
+      <div class="ask-starters${empty ? ' big' : ''}">${starters.map((s) => `<button type="button" class="starter" data-q="${esc(s)}"${pending && !pending.error ? ' disabled' : ''}><span>${esc(s)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m0 0-5-5m5 5-5 5"/></svg></button>`).join('')}</div>
       <form class="ask-form" autocomplete="off">
         <textarea class="ask-input" rows="1" maxlength="500" placeholder="Ask anything about this recording" aria-label="Your question" enterkeyhint="send"${pending && !pending.error ? ' disabled' : ''}></textarea>
         <button class="ask-send" type="submit" aria-label="Ask"${pending && !pending.error ? ' disabled' : ''}>${ICON.send}</button>
@@ -610,6 +642,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     st.askDraft = '';
     st.ask = { question, text: '', status: null, error: null };
     render();
+    mascotSignal('ask-start');
     try {
       const at = refersToPlayback(question) ? ctx.playbackTime() : null;
       const r = await askQuestion(ctx.getId(), question, at, {
@@ -618,9 +651,11 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
       });
       st.questions.push({ id: r.id, question, answer: r.answer, refs: r.refs, found: r.found, sourceVersion: st.contentVersion });
       st.ask = null;
+      mascotSignal('ask-done');
     } catch (err) {
       if (err instanceof ApiError && err.code === 'not_configured') st.notConfigured = true;
       st.ask.error = err;
+      mascotSignal('ask-error');
     }
     render();
   }
@@ -640,6 +675,9 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     remove: removeArtifact,
     saveProgress,
     chips, segById, loading, errorBox, timeOf, privacyLine,
+    canPlay: () => ctx.playbackTime?.() != null,
+    gradeShort: (a, index, answer) => gradeAnswer(ctx.getId(), a.id, index, answer),
+    duration: () => ctx.duration?.() || 0,
     makeDialog,
     showTab,
     openExport: (pre) => openExport(pre),

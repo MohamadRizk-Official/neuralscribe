@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import { resolve } from 'node:path';
+import { BRAND_HTML, MARK_HTML, BRAND_FONT_LINK } from './src/lib/brand-markup.js';
 
 // Server-only settings the /api functions read from process.env. Locally they come from .env.local;
 // on Vercel from the project's Environment Variables. They are NOT in envPrefix, so they never reach the
@@ -14,8 +15,9 @@ const pages = {
   authCallback: 'auth/callback.html',
   library: 'library.html',
   transcript: 'transcript.html',
+  settings: 'settings.html',
 };
-const cleanRoutes = new Set(['/auth', '/auth/callback', '/library', '/transcript']);
+const cleanRoutes = new Set(['/auth', '/auth/callback', '/library', '/transcript', '/settings']);
 
 export default defineConfig(({ mode }) => ({
   // The Supabase settings live in Vercel as NEXT_PUBLIC_* (public, browser-safe values).
@@ -34,6 +36,18 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [
+    {
+      // One brand for every page: <!-- sparkscribe:brand --> (header logo + wordmark) and
+      // <!-- sparkscribe:mark --> (the mark alone) come from src/lib/brand-markup.js, plus the wordmark's font.
+      name: 'sparkscribe-brand',
+      transformIndexHtml: {
+        order: 'pre',
+        handler: (html) => html
+          .replace('<!-- sparkscribe:brand -->', BRAND_HTML)
+          .replaceAll('<!-- sparkscribe:mark -->', MARK_HTML)
+          .replace('</head>', `  ${BRAND_FONT_LINK}\n  </head>`),
+      },
+    },
     {
       // Runs the Vercel functions in api/ on the dev server, so `npm run dev` behaves like production.
       name: 'api-functions-dev',

@@ -2,10 +2,12 @@ import { decodeToMono16k, peaks } from './audio.js';
 import { isConfigured } from './lib/supabase.js';
 import { mountAccountMenu, getSession } from './lib/account.js';
 import { saveTranscript, updateTranscriptText, updateRecordingType, stashPending, peekPending, clearPending } from './lib/transcripts.js';
-import { toStoredSegments, RECORDING_TYPES } from './lib/segments.js';
+import { toStoredSegments } from './lib/segments.js';
 import { cleanText } from './lib/clean.js';
 import { mountInsights } from './insights/insights.js';
 import { sparkPulse } from './lib/brand.js';
+import { mountMascot } from './mascot/mascot.js';
+import { mascotSignal, mascotTravel } from './mascot/bus.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -27,7 +29,7 @@ const els = {
   advanced: $('advanced'), advSummary: $('advSummary'), vocabInput: $('vocabInput'),
   qualityChip: $('qualityChip'), speakersStepLabel: $('speakersStepLabel'),
   muteBtn: $('muteBtn'), volSlider: $('volSlider'),
-  recTypeSelect: $('recTypeSelect'), viewToggle: $('viewToggle'),
+  viewToggle: $('viewToggle'),
 };
 
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
@@ -90,8 +92,7 @@ function updateSettingsUI() {
   const sp = els.speakersSelect.value;
   const speakers = sp === 'auto' ? 'Auto speakers' : sp === 'off' ? 'No speaker labels' : els.speakersSelect.selectedOptions[0].textContent;
   const n = vocabulary().length;
-  const type = els.recTypeSelect.value ? els.recTypeSelect.selectedOptions[0].textContent : '';
-  els.advSummary.textContent = [speakers, type, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
+  els.advSummary.textContent = [speakers, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
   updateModeNote();
 }
 function updateModeNote() {
@@ -106,9 +107,44 @@ function updateModeNote() {
   els.modeNote.textContent = parts.join(' ');
 }
 [els.modelSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
-els.recTypeSelect.addEventListener('change', updateSettingsUI);
 els.modeInputs.forEach((i) => i.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
 els.vocabInput.addEventListener('input', () => { savePrefs(); updateSettingsUI(); });
+
+// Important words as removable chips. The hidden #vocabInput stays the source of truth (comma separated),
+// so saving, the summary line and the speech-model hint work exactly as before.
+{
+  const list = $('vocabList'), entry = $('vocabEntry'), box = $('vocabChips');
+  const draw = () => {
+    list.innerHTML = vocabulary().map((w, i) => `<li class="chip-word"><span>${esc(w)}</span><button type="button" data-i="${i}" aria-label="Remove ${esc(w)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></li>`).join('');
+  };
+  const write = (words) => { els.vocabInput.value = words.join(', '); els.vocabInput.dispatchEvent(new Event('input')); draw(); };
+  const add = (text) => {
+    const cur = vocabulary(), seen = new Set(cur.map((w) => w.toLowerCase()));
+    for (const w of String(text).split(/[,\n;]+/).map((x) => x.trim()).filter(Boolean)) {
+      if (!seen.has(w.toLowerCase()) && cur.length < 60) { cur.push(w.slice(0, 60)); seen.add(w.toLowerCase()); }
+    }
+    write(cur);
+  };
+  if (list && entry && box) {
+    entry.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ',') && entry.value.trim()) { e.preventDefault(); add(entry.value); entry.value = ''; }
+      else if (e.key === 'Backspace' && !entry.value && vocabulary().length) { const w = vocabulary(); w.pop(); write(w); }
+    });
+    entry.addEventListener('paste', (e) => {
+      const t = e.clipboardData?.getData('text') || '';
+      if (/[,\n;]/.test(t)) { e.preventDefault(); add(t); }
+    });
+    entry.addEventListener('blur', () => { if (entry.value.trim()) { add(entry.value); entry.value = ''; } });
+    list.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-i]');
+      if (!b) return;
+      const w = vocabulary(); w.splice(Number(b.dataset.i), 1); write(w);
+      entry.focus();
+    });
+    box.addEventListener('click', (e) => { if (e.target === box || e.target === list) entry.focus(); });
+    draw();
+  }
+}
 
 // ---------- worker ----------
 function getWorker() {
@@ -183,7 +219,9 @@ els.cpuWhy.addEventListener('click', (e) => { e.preventDefault(); showDeviceInfo
 
 // ---------- file intake ----------
 ['dragenter', 'dragover'].forEach((ev) => els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.add('over'); }));
-['dragleave', 'drop'].forEach((ev) => els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.remove('over'); }));
+// moving between the box's own children fires dragleave too: only a real exit ends the drag-over state
+els.dropzone.addEventListener('dragleave', (e) => { e.preventDefault(); if (!els.dropzone.contains(e.relatedTarget)) els.dropzone.classList.remove('over'); });
+els.dropzone.addEventListener('drop', (e) => { e.preventDefault(); els.dropzone.classList.remove('over'); });
 els.dropzone.addEventListener('drop', (e) => { const f = e.dataTransfer.files?.[0]; if (f) start(f); });
 els.fileInput.addEventListener('change', () => { const f = els.fileInput.files?.[0]; if (f) start(f); els.fileInput.value = ''; });
 window.addEventListener('paste', (e) => {
@@ -219,10 +257,12 @@ function reset() {
   els.searchInput.value = '';
   closeMenu();
   show(els.dropPanel);
+  mascotSignal('reset');
 }
 function showError(msg) {
   els.errorText.textContent = msg;
   show(els.errorPanel);
+  mascotSignal('error');
 }
 
 // ---------- progress ----------
@@ -340,6 +380,8 @@ async function start(file) {
   currentFile = file;
   els.waveWrap.classList.remove('done');
   sparkPulse();
+  mascotSignal('file-accepted');
+  setTimeout(() => { if (currentFile === file && run) mascotSignal('working'); }, 900);
   downloads.clear();
   els.downloads.innerHTML = '';
   els.statusLine.textContent = '';
@@ -371,7 +413,8 @@ async function start(file) {
   const q = new URLSearchParams(location.search);
   const samples = decoded.samples;
   const mode = modeValue();
-  const recordingType = RECORDING_TYPES.includes(els.recTypeSelect.value) ? els.recTypeSelect.value : null;
+  // the recording type is always Auto here: SparkScribe infers it, and it can be changed on the result page
+  const recordingType = null;
   state = { duration: decoded.duration, language: 'en', mode, recordingType, view: 'original' };
   getWorker().postMessage({
     type: 'run',
@@ -434,10 +477,12 @@ function onComplete({ lines, language, ms, device, stats }) {
   els.resTitle.title = currentFile.name;
   els.waveWrap.classList.add('done');
   sparkPulse();
+  mascotSignal('transcribe-done');
   setTimeout(() => {
     show(els.resultsPanel);
     renderAll();
     autoSave(); // in addition to showing the result; a failure never touches what's on screen
+    setTimeout(() => mascotSignal('results-shown'), 700);
   }, 900);
 }
 
@@ -812,8 +857,8 @@ function seek(t, play = false) {
 els.playBtn.addEventListener('click', () => (els.player.paused ? els.player.play().catch(() => {}) : els.player.pause()));
 els.backBtn.addEventListener('click', () => seek(els.player.currentTime - 10));
 els.fwdBtn.addEventListener('click', () => seek(els.player.currentTime + 10));
-els.player.addEventListener('play', () => els.playBtn.classList.add('playing'));
-els.player.addEventListener('pause', () => els.playBtn.classList.remove('playing'));
+els.player.addEventListener('play', () => { els.playBtn.classList.add('playing'); mascotSignal('audio-play'); });
+els.player.addEventListener('pause', () => { els.playBtn.classList.remove('playing'); mascotSignal('audio-pause'); });
 els.player.addEventListener('timeupdate', () => { updatePlayhead(); updateActive(false); });
 els.pbSeek.addEventListener('input', () => {
   if (!state?.duration) return;
@@ -1133,6 +1178,7 @@ function renderSaveBar() {
   bar.innerHTML = `<span class="save-icon">${icon}</span><span class="save-text">${text}</span>${action}`;
   bar.querySelector('[data-act="retry"]')?.addEventListener('click', doSave);
   bar.querySelector('[data-act="signin"]')?.addEventListener('click', signInToSave);
+  bar.querySelector('a[href^="/transcript"]')?.addEventListener('click', mascotTravel); // the mascot follows to the saved copy
 }
 
 // Back from signing in with a parked transcript: save it, then open it.
@@ -1201,22 +1247,84 @@ function demoSwitch(buttons, panel, attr, pressedAttr) {
   if (c) demoSwitch([...document.querySelectorAll('[data-make]')], c, 'make', 'aria-pressed');
 }
 
-// A very subtle background glow that drifts toward the cursor: desktop pointers only, never with
-// "reduce motion", and at most a few percent of the page.
+// ---------- home polish: upload spark, transcript demo ----------
+const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document.hidden;
+
+// The spark above "Drop a file or browse" ignites once on every new pointer entry (light runs from the bolt
+// out through the bars), resets when the pointer leaves, and plays a stronger version when a file is dragged
+// in. The energy edge pauses while the upload area is off screen or the window is in the background.
 {
-  const glow = document.getElementById('bgCursor');
-  const fine = matchMedia('(hover: hover) and (pointer: fine)');
-  const calm = matchMedia('(prefers-reduced-motion: reduce)');
-  let raf = 0, x = 0, y = 0;
-  if (glow) window.addEventListener('pointermove', (e) => {
-    if (!fine.matches || calm.matches || e.pointerType !== 'mouse') return;
-    x = (e.clientX / innerWidth - 0.5) * 6;   // ±3%
-    y = (e.clientY / innerHeight - 0.5) * 4;  // ±2%
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
-      glow.style.setProperty('--cx', `${x.toFixed(2)}%`);
-      glow.style.setProperty('--cy', `${y.toFixed(2)}%`);
-    });
-  }, { passive: true });
+  const icon = els.dropzone.querySelector('.dz-icon');
+  let dragInside = false;
+  const ignite = (strong) => {
+    if (calmMotion.matches || !icon) return;
+    icon.classList.remove('dz-spark', 'dz-spark-strong');
+    void icon.offsetWidth;                         // restart the animation from the beginning
+    icon.classList.add(strong ? 'dz-spark-strong' : 'dz-spark');
+  };
+  els.dropzone.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'touch') ignite(false); });
+  els.dropzone.addEventListener('pointerleave', () => { if (!dragInside) icon?.classList.remove('dz-spark', 'dz-spark-strong'); });
+  els.dropzone.addEventListener('dragenter', () => { if (!dragInside) { dragInside = true; ignite(true); } });
+  const dragOut = () => { dragInside = false; icon?.classList.remove('dz-spark', 'dz-spark-strong'); };
+  els.dropzone.addEventListener('dragleave', (e) => { if (!els.dropzone.contains(e.relatedTarget)) dragOut(); });
+  els.dropzone.addEventListener('drop', dragOut);
+
+  let onScreen = true;
+  const still = () => els.dropzone.classList.toggle('dz-still', !onScreen || document.hidden || !document.hasFocus());
+  if ('IntersectionObserver' in window) new IntersectionObserver(([en]) => { onScreen = en.isIntersecting; still(); }).observe(els.dropzone);
+  document.addEventListener('visibilitychange', still);
+  window.addEventListener('blur', still);
+  window.addEventListener('focus', still);
 }
+
+// "what." has a soft echo: three faint copies (cyan, violet, pink) that drift a few pixels AGAINST the pointer,
+// like an after-image of a sound. The word itself never moves. Mouse only; off with reduce motion.
+{
+  const echo = document.getElementById('heroEcho');
+  const fine = matchMedia('(hover: hover) and (pointer: fine)');
+  let tx = 0, ty = 0, x = 0, y = 0, raf = 0;
+  const tick = () => {
+    x += (tx - x) * 0.12; y += (ty - y) * 0.12;
+    echo.style.setProperty('--ex', x.toFixed(3)); echo.style.setProperty('--ey', y.toFixed(3));
+    raf = Math.abs(tx - x) + Math.abs(ty - y) > 0.002 ? requestAnimationFrame(tick) : 0;
+  };
+  if (echo) {
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse' || !fine.matches || calmMotion.matches || !onLanding()) return;
+      const r = echo.getBoundingClientRect();
+      tx = -Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (innerWidth / 2)));
+      ty = -Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (innerHeight / 2)));
+      if (!raf) raf = requestAnimationFrame(tick);
+    }, { passive: true });
+  }
+}
+
+// The transcript example plays along slowly while it is on screen (like the real Play along view).
+{
+  const lines = [...document.querySelectorAll('.hear-lines > div')];
+  let timer = 0, i = lines.findIndex((l) => l.classList.contains('hl'));
+  const step = () => {
+    if (calmMotion.matches || !onLanding()) return;
+    lines.forEach((l) => l.classList.remove('hl'));
+    i = (i + 1) % lines.length;
+    lines[i].classList.add('hl');
+  };
+  if (lines.length && 'IntersectionObserver' in window) {
+    new IntersectionObserver(([en]) => {
+      clearInterval(timer);
+      if (en.isIntersecting) timer = setInterval(step, 2600);
+    }, { threshold: 0.4 }).observe(lines[0].parentElement);
+  }
+  // like the real transcript: click a line (its timestamp) to jump there
+  lines.forEach((l, n) => {
+    l.tabIndex = 0;
+    l.setAttribute('role', 'button');
+    const go = () => { lines.forEach((x) => x.classList.remove('hl')); l.classList.add('hl'); i = n; clearInterval(timer); timer = setInterval(step, 2600); };
+    l.addEventListener('click', go);
+    l.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
+}
+
+// the mascot: a small audio companion (src/mascot/mascot.js)
+mountMascot({ page: 'home' });

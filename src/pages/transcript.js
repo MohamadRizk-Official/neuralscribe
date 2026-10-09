@@ -2,6 +2,8 @@
 // favorite, folders, copy / download / delete. t/line (from Library search) open it at that moment.
 import { isConfigured } from '../lib/supabase.js';
 import { mountAccountMenu, requireUser, esc } from '../lib/account.js';
+import { mountMascot } from '../mascot/mascot.js';
+import { mascotSignal } from '../mascot/bus.js';
 import { getTranscript, updateRecordingType, fmtDuration, fmtDate, langName } from '../lib/transcripts.js';
 import { renameTranscript, setFavorite, deleteTranscripts, markOpened, getRecordingMeta, listFolders } from '../lib/library.js';
 import { promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
@@ -37,6 +39,7 @@ function initials(name) {
   if (!isConfigured) return location.replace('/auth');
   await requireUser();
   mountAccountMenu($('accountSlot'));
+  mountMascot({ page: 'transcript' });
 
   if (!/^[0-9a-f-]{36}$/i.test(id)) return notFound("That link doesn't point to a transcript.");
 
@@ -114,6 +117,8 @@ function initials(name) {
 
   // ---- optional "play along": the user opens the original audio from their device (never uploaded) ----
   const player = $('attachPlayer');
+  player.addEventListener('play', () => mascotSignal('audio-play'));
+  player.addEventListener('pause', () => mascotSignal('audio-pause'));
   $('attachInput').addEventListener('change', () => {
     const f = $('attachInput').files[0];
     if (!f) return;

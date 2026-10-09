@@ -74,5 +74,9 @@ export async function askQuestion(id, question, at, { onStatus, onDelta } = {}) 
 }
 
 // Phase 5 (Create tab): generate one tool output, or get the stored one back if it is still current.
+// Practice Quiz: check one short answer by meaning (the server reads the question from the stored quiz)
+export const gradeAnswer = (id, artifactId, index, answer) =>
+  call('/api/tools', { method: 'POST', body: JSON.stringify({ action: 'grade', transcriptionId: id, artifactId, index, answer }) });
+
 export const requestTool = (id, kind, settings = {}, force = false) =>
   call('/api/tools', { method: 'POST', body: JSON.stringify({ transcriptionId: id, kind, settings, force }) });

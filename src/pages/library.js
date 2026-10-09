@@ -9,6 +9,8 @@ import {
   PAGE_SIZE, SEARCH_PAGE_SIZE, listLibrary, searchLibrary, libraryStats, listFolders, renameTranscript, setFavorite,
   deleteTranscripts, removeFromFolder, renameFolder, deleteFolder, createFolder, highlight, fmtHours,
 } from '../lib/library.js';
+import { mountMascot } from '../mascot/mascot.js';
+import { mascotSignal } from '../mascot/bus.js';
 import { makeDialog, promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
 
 const $ = (id) => document.getElementById(id);
@@ -296,6 +298,7 @@ async function runSearch(reset = true) {
     const rows = await searchLibrary(st.q.trim(), { offset: st.resOffset, limit: SEARCH_PAGE_SIZE });
     if (my !== token) return;
     st.results = reset ? rows : [...st.results, ...rows];
+    if (reset && rows.length) mascotSignal('search-found');
     st.resOffset += rows.length;
     st.resDone = rows.length < SEARCH_PAGE_SIZE;
   } catch (err) {
@@ -528,6 +531,7 @@ function bind() {
   if (!isConfigured) return location.replace('/auth');
   await requireUser();
   mountAccountMenu($('accountSlot'));
+  mountMascot({ page: 'library' });
   readUrl();
   $('q').value = st.q;
   bind();
