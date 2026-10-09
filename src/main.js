@@ -1247,6 +1247,44 @@ function demoSwitch(buttons, panel, attr, pressedAttr) {
   if (c) demoSwitch([...document.querySelectorAll('[data-make]')], c, 'make', 'aria-pressed');
 }
 
+// ---------- home: Study / Work ----------
+// The same product, framed for a student or for work. It only swaps copy and examples on the home page;
+// it changes nothing about how a recording is processed. Remembered on this device.
+{
+  const KEY = 'sparkscribe.audience';
+  const sw = document.querySelector('.mode-switch');
+  const btns = sw ? [...sw.querySelectorAll('[data-mode]')] : [];
+  const apply = (mode, focus) => {
+    sw.dataset.active = mode;
+    btns.forEach((b) => { const on = b.dataset.mode === mode; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; if (on && focus) b.focus(); });
+    document.querySelectorAll('[data-for-mode]').forEach((el) => { el.hidden = el.dataset.forMode !== mode; });
+    try { localStorage.setItem(KEY, mode); } catch { /* private mode: fine */ }
+  };
+  if (sw) {
+    let saved = 'study';
+    try { saved = localStorage.getItem(KEY) === 'work' ? 'work' : 'study'; } catch { /* default */ }
+    apply(saved, false);
+    btns.forEach((b) => b.addEventListener('click', () => apply(b.dataset.mode, false)));
+    sw.addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      apply(sw.dataset.active === 'study' ? 'work' : 'study', true);
+    });
+  }
+  // the outputs fill in one by one the first time they scroll into view (static with reduce motion)
+  const packs = document.querySelectorAll('.pack');
+  if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const io = new IntersectionObserver((list) => list.forEach((en) => {
+      if (en.isIntersecting) { document.querySelectorAll('.pack').forEach((p) => p.classList.add('in')); io.disconnect(); }
+    }), { threshold: 0.25 });
+    packs.forEach((p) => { p.classList.add('will-reveal'); io.observe(p); });
+  }
+  document.querySelector('[data-act="to-upload"]')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    els.dropPanel.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+}
+
 // ---------- home polish: upload spark, transcript demo ----------
 const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document.hidden;
