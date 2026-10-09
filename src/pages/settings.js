@@ -1,7 +1,7 @@
 // Settings: Account (who you're signed in as), Preferences (the mascot), Privacy (how your data is handled).
 // Works signed out too: preferences are kept in this browser, and on the account when signed in.
 import { mountAccountMenu, getSession, signOut, esc } from '../lib/account.js';
-import { getMascotPref, setMascotPref } from '../lib/prefs.js';
+import { getMascotPref, setMascotPref, getThemePref, setThemePref } from '../lib/prefs.js';
 import { mountMascot } from '../mascot/mascot.js';
 
 const $ = (id) => document.getElementById(id);
@@ -57,6 +57,30 @@ seg.addEventListener('keydown', (e) => {          // radio-group keys: arrows mo
 });
 window.addEventListener('sparkscribe:mascot-pref', (e) => paint(e.detail));
 paint(getMascotPref());
+
+// ---------- preferences: appearance ----------
+const themeSeg = $('themeSeg');
+const THEMES = ['system', 'light', 'dark'];
+function paintTheme(v) {
+  themeSeg.querySelectorAll('[role="radio"]').forEach((b) => {
+    const on = b.dataset.v === v;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  });
+}
+function chooseTheme(v, focus) {
+  paintTheme(v);
+  setThemePref(v);
+  showSaved(true);
+  if (focus) themeSeg.querySelector(`[data-v="${v}"]`)?.focus();
+}
+themeSeg.addEventListener('click', (e) => { const b = e.target.closest('[role="radio"]'); if (b) chooseTheme(b.dataset.v); });
+themeSeg.addEventListener('keydown', (e) => {
+  const i = THEMES.indexOf(getThemePref());
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); chooseTheme(THEMES[(i + 1) % 3], true); }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); chooseTheme(THEMES[(i + 2) % 3], true); }
+});
+paintTheme(getThemePref());
 
 // ---------- start ----------
 mountAccountMenu($('accountSlot'), { onChange: (s) => renderAccount(s) });

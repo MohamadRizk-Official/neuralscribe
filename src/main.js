@@ -1309,21 +1309,14 @@ function toast(msg) {
   toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 1600);
 }
 
-// ---------- home: brand motion, "Hear it. Understand it. Use it." demos, cursor glow ----------
+// ---------- home: brand motion ----------
 setTimeout(() => sparkPulse(), 700); // one pulse when the page opens
 
-// small product demos: tabs (Summary / Notes / Ask) and tool chips (Quiz / Study Guide / ...)
-function demoSwitch(buttons, panel, attr, pressedAttr) {
-  buttons.forEach((b) => b.addEventListener('click', () => {
-    buttons.forEach((x) => x.setAttribute(pressedAttr, String(x === b)));
-    panel.querySelectorAll('[data-for]').forEach((d) => { d.hidden = d.dataset.for !== b.dataset[attr]; });
-  }));
-}
+// ambient background light rests while the page is in the background
 {
-  const u = document.querySelector('[data-hear-panel="understand"]');
-  const c = document.querySelector('[data-hear-panel="create"]');
-  if (u) demoSwitch([...document.querySelectorAll('[data-hear]')], u, 'hear', 'aria-selected');
-  if (c) demoSwitch([...document.querySelectorAll('[data-make]')], c, 'make', 'aria-pressed');
+  const rest = () => document.documentElement.classList.toggle('bg-paused', document.hidden);
+  document.addEventListener('visibilitychange', rest);
+  rest();
 }
 
 // ---------- home: Study / Work ----------
@@ -1337,6 +1330,7 @@ function demoSwitch(buttons, panel, attr, pressedAttr) {
     sw.dataset.active = mode;
     btns.forEach((b) => { const on = b.dataset.mode === mode; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; if (on && focus) b.focus(); });
     document.querySelectorAll('[data-for-mode]').forEach((el) => { el.hidden = el.dataset.forMode !== mode; });
+    document.querySelectorAll('[data-use]').forEach((el) => el.setAttribute('aria-pressed', String(el.dataset.use === mode)));
     try { localStorage.setItem(KEY, mode); } catch { /* private mode: fine */ }
   };
   if (sw) {
@@ -1344,6 +1338,7 @@ function demoSwitch(buttons, panel, attr, pressedAttr) {
     try { saved = localStorage.getItem(KEY) === 'work' ? 'work' : 'study'; } catch { /* default */ }
     apply(saved, false);
     btns.forEach((b) => b.addEventListener('click', () => apply(b.dataset.mode, false)));
+    document.querySelectorAll('[data-use]').forEach((el) => el.addEventListener('click', () => { apply(el.dataset.use, false); sw.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }));
     sw.addEventListener('keydown', (e) => {
       if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
       e.preventDefault();
@@ -1415,32 +1410,6 @@ const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document
       if (!raf) raf = requestAnimationFrame(tick);
     }, { passive: true });
   }
-}
-
-// The transcript example plays along slowly while it is on screen (like the real Play along view).
-{
-  const lines = [...document.querySelectorAll('.hear-lines > div')];
-  let timer = 0, i = lines.findIndex((l) => l.classList.contains('hl'));
-  const step = () => {
-    if (calmMotion.matches || !onLanding()) return;
-    lines.forEach((l) => l.classList.remove('hl'));
-    i = (i + 1) % lines.length;
-    lines[i].classList.add('hl');
-  };
-  if (lines.length && 'IntersectionObserver' in window) {
-    new IntersectionObserver(([en]) => {
-      clearInterval(timer);
-      if (en.isIntersecting) timer = setInterval(step, 2600);
-    }, { threshold: 0.4 }).observe(lines[0].parentElement);
-  }
-  // like the real transcript: click a line (its timestamp) to jump there
-  lines.forEach((l, n) => {
-    l.tabIndex = 0;
-    l.setAttribute('role', 'button');
-    const go = () => { lines.forEach((x) => x.classList.remove('hl')); l.classList.add('hl'); i = n; clearInterval(timer); timer = setInterval(step, 2600); };
-    l.addEventListener('click', go);
-    l.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
-  });
 }
 
 // the mascot: a small audio companion (src/mascot/mascot.js)

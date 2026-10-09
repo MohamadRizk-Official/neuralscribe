@@ -7,6 +7,8 @@
 .mascot.m-off { display: none; }
 .mascot.m-hiding .m-stage, .mascot.m-hiding .m-hit, .mascot.m-hiding .m-shadow { visibility: hidden; }
 .m-stage.m-fading { opacity: 0 !important; transition: opacity .2s ease; }
+.mascot.m-away .m-stage, .mascot.m-away .m-shadow { opacity: 0 !important; transition: opacity .3s ease; }   /* phone home page: out of the way */
+.mascot.m-away .m-hit { pointer-events: none; }
 .m-stage { position: absolute; left: 0; top: 0; transform: translate3d(-400px, 0, 0); will-change: transform; opacity: 0; transition: opacity .5s ease; }
 .mascot.m-ready .m-stage, .mascot.m-static .m-stage { opacity: 1; }
 .m-canvas { display: block; width: 100%; height: 100%; }
