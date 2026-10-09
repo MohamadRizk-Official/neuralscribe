@@ -7,6 +7,8 @@ import { str, nullableStr, refs, evidence, obj, list, point, decision, actionIte
 import { normalizeToolSettings, quizQuestionCount } from '../../src/lib/tool-settings.js';
 
 const int = (description) => ({ type: 'integer', ...(description && { description }) });
+// Action Plan: where each candidate stands when the recording ends (only `open` is the plan itself)
+export const PLAN_STATUSES = ['open', 'completed_in_recording', 'discussed_only', 'cancelled', 'unclear'];
 const topic = obj({ title: str('2–6 word topic title'), summary: str('One or two sentences, as said'), start_ref: int('Line number where this topic begins') });
 
 // Words that make something explicit exam information. Anything else is at most "worth reviewing".
@@ -285,11 +287,51 @@ A discussion, suggestion, preference or priority is not a decision. Return empty
 
   action_plan: {
     task: 'action_plan',
-    schema: obj({ tasks: list(actionItem) }),
-    instructions: () => `Build an ACTION PLAN from the recording above: every task someone said they will do, was asked to do, or said needs to be done.
-- ${ACTION_RULE}
-Do not add tasks that would merely make sense; only ones the speakers stated. Return an empty list if there are none.`,
-    validate: () => 0,
+    schema: obj({
+      tasks: list(obj({
+        task: str('The work, as a short imperative phrase (e.g. "Ask the client about Clover setup")'),
+        status: { type: 'string', enum: PLAN_STATUSES, description: 'Where it stands when the recording ENDS' },
+        owner: nullableStr('Who will do it: speaker label or name as said; null if nobody is responsible'),
+        owner_basis: { type: 'string', enum: ['assigned', 'volunteered', 'inferred', 'none'], description: 'assigned = someone was asked/told to do it; volunteered = they said they will; inferred = only implied by context; none = no owner' },
+        deadline: nullableStr('A specific due time or date exactly as said; null if none or vague ("soon", "later")'),
+        evidence: evidence('the task was proposed, asked for, assigned or committed to'),
+        refs,
+        resolution: nullableStr('For completed_in_recording / cancelled / discussed_only: what happened later in the recording, in a few words; otherwise null'),
+        resolution_refs: { type: 'array', items: { type: 'integer' }, description: 'Line numbers where it was done, cancelled or superseded (empty if open)' },
+      })),
+    }),
+    instructions: () => `Build an ACTION PLAN: the things that STILL NEED TO HAPPEN AFTER THIS RECORDING ENDS.
+Read the whole conversation before deciding anything. Statements that sound like tasks are often settled later in the same recording.
+For every candidate (anything someone proposed, offered, asked for, assigned or said must be done) decide:
+1. Was it proposed, and was it accepted or agreed?
+2. Was it done later in the recording? ("I'll send him the website" followed by sending it or showing it = done. "We have some questions to ask you" followed by those questions being asked = done.)
+3. Was it replaced by a different plan, cancelled, or rejected?
+4. Was it only hypothetical, an idea, or a description of how something already works?
+5. Is anyone actually responsible for it?
+Then give it ONE status, as of the END of the recording:
+- open: agreed or assigned work that has not happened by the end of the recording.
+- completed_in_recording: it was done during the conversation. Give resolution + resolution_refs.
+- discussed_only: an idea, hypothetical, option, wish, or description of existing functionality; nobody committed to doing it.
+- cancelled: dropped, rejected, or replaced by another plan. Give resolution + resolution_refs.
+- unclear: you cannot tell whether it still needs to happen.
+Owner: the person who will do it. owner_basis = assigned or volunteered only if the words show it; inferred only if the context makes it very likely (say so through owner_basis, never as fact); otherwise owner = null and owner_basis = none. Use the speaker labels as they appear in the transcript, or the name the speakers used.
+Deadline: only a specific time or date that was said; vague timing is null.
+evidence: exact words from the line where the task was proposed, asked for or committed to.
+Do not invent tasks that would merely make sense. Merge duplicates (the same work mentioned several times) into one task with all its refs. Return an empty list if nothing qualifies.`,
+    validate(c, segments) {
+      const ids = new Set(segments.map((s) => s.id));
+      let fixed = 0;
+      for (const t of c.tasks || []) {
+        if (!PLAN_STATUSES.includes(t.status)) { t.status = 'unclear'; fixed++; }
+        if (!['assigned', 'volunteered', 'inferred', 'none'].includes(t.owner_basis)) t.owner_basis = t.owner ? 'inferred' : 'none';
+        if (!t.owner) t.owner_basis = 'none';
+        t.resolution_refs = [...new Set((t.resolution_refs || []).map(Number).filter((r) => ids.has(r)))].sort((a, b) => a - b).slice(0, 5);
+        // "done" or "cancelled" must point at where that happened, or it stays open/unclear
+        if ((t.status === 'completed_in_recording' || t.status === 'cancelled') && !t.resolution_refs.length) { t.status = 'unclear'; fixed++; }
+        if (t.status === 'open' || t.status === 'unclear') { t.resolution = null; t.resolution_refs = []; }
+      }
+      return fixed;
+    },
   },
 
   followup_email: {

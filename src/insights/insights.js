@@ -7,6 +7,7 @@
 import { fetchState, requestInsight, requestTool, askQuestion, gradeAnswer, ApiError } from './api.js';
 import { createToolsUI, artifactBlocks, blocksToText, TOOL_INFO, toolsFor } from './tools.js';
 import { openExportDialog } from './export.js';
+import { watchNames, renameInText } from '../lib/speaker-names.js';
 import { cleanText } from '../lib/clean.js';
 import { supabase } from '../lib/supabase.js';
 import { normalizeToolSettings, describeSettings } from '../lib/tool-settings.js';
@@ -166,6 +167,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
   document.fonts?.ready.then(moveInk);
   if ('ResizeObserver' in window) new ResizeObserver(moveInk).observe(tabBar);
   const panels = {};
+  watchNames(host, () => ctx.nameMap?.() || new Map()); // renamed speakers show their new name in every result
   for (const k of ['summary', 'notes', 'ask', 'create']) {
     const p = document.createElement('section');
     p.className = 'tab-panel hidden';
@@ -744,6 +746,9 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     }
     // signed out / not saved yet: only the transcript can be exported (nothing else exists)
     if (!signedIn) sources.splice(2);
+    // results written with an earlier speaker name ("Speaker 1") export with the current one ("Hadi")
+    const names = ctx.nameMap?.() || new Map();
+    if (names.size) for (const s of sources) if (s.blocks && !s.id.startsWith('transcript')) { const b = s.blocks; s.blocks = () => b().map((x) => ({ ...x, text: renameInText(x.text, names) })); }
     const title = ctx.title?.() || 'SparkScribe transcript';
     const meta = [ctx.createdAt?.() ? `Recorded ${new Date(ctx.createdAt()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}` : null, 'Exported from SparkScribe'].filter(Boolean);
     openExportDialog({ title, meta, sources, segments: segs, coarse: !!ctx.coarse, preselect, onDone: (m) => ctx.toast?.(m) });

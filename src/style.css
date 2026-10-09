@@ -3002,3 +3002,32 @@ html.bg-paused .bg *, html.bg-paused .bg { animation-play-state: paused !importa
     radial-gradient(rgba(70, 80, 160, .07) 1px, transparent 1.2px) 0 0 / 22px 22px,
     linear-gradient(180deg, #fff, #fafaff);
   box-shadow: 0 30px 70px -45px rgba(40, 50, 110, .35), inset 0 1px 0 #fff; }
+
+/* Recording details: a small panel next to the Details button */
+.details-pop { position: fixed; z-index: 60; width: min(320px, calc(100vw - 24px)); padding: 14px 16px; border-radius: 16px;
+  background: var(--pop); border: 1px solid var(--hair-2); box-shadow: var(--lift), 0 24px 60px -30px rgba(0, 0, 0, .55); animation: dp-in .18s ease both; }
+@keyframes dp-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.dp-title { margin-bottom: 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
+.details-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin: 0; font-size: 14px; }
+.details-pop dt { color: var(--ink-3); }
+.details-pop dd { margin: 0; color: var(--ink); font-weight: 500; }
+.details-pop dd span { display: block; font-size: 12.5px; font-weight: 400; color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) { .details-pop { animation: none; } }
+
+/* Action Plan: the task is what you see first; owner, deadline and time are one quiet line; the evidence folds */
+.plan-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.plan-task { display: grid; gap: 6px; padding: 14px 16px; border-radius: 16px; background: var(--card); border: 1px solid var(--hair); border-left: 3px solid var(--c-blue);
+  transition: border-color .22s ease, box-shadow .22s ease, transform .22s cubic-bezier(.2,.8,.2,1); }
+.plan-task:hover { border-color: color-mix(in srgb, var(--c-blue) 45%, transparent); box-shadow: var(--lift); }
+.plan-what { font-size: 18px; font-weight: 650; line-height: 1.3; color: var(--ink); }
+.plan-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 14px; color: var(--ink-2); }
+.plan-meta .ns { color: var(--ink-3); }
+.plan-meta > span:not(:last-child)::after { content: "·"; margin-left: 12px; color: var(--ink-3); }
+.plan-ev summary { width: max-content; cursor: pointer; font-size: 13px; color: var(--ink-3); border-radius: 6px; }
+.plan-ev summary:hover { color: var(--ink-2); }
+.plan-ev p { margin: 6px 0 4px; font-size: 14px; font-style: italic; color: var(--ink-2); }
+.plan-done { margin-top: 14px; padding: 10px 14px; border-radius: 14px; border: 1px dashed var(--hair-2); }
+.plan-done summary { cursor: pointer; font-size: 14.5px; font-weight: 600; color: var(--ink-2); }
+.plan-done-item { display: flex; align-items: baseline; gap: 10px; }
+.plan-check { color: var(--c-ok); font-weight: 700; }
+.plan-note { margin-top: 10px; }

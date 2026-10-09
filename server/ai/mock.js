@@ -60,7 +60,10 @@ function structured(task, lines) {
   if (task === 'definitions') return { definitions: [{ term: 'Mock term', definition: ev(L(1)), evidence: ev(L(1)), refs: [L(1).id] }] };
   if (task === 'exam_points') return { explicit: [{ text: 'Claimed exam point without exam words', evidence: ev(L(0)), refs: [L(0).id] }], worth_reviewing: [] };
   if (task === 'meeting_recap') return { overview: `[Mock] ${ev(L(0))}`, topics: [{ title: 'Mock', summary: ev(L(0)), start_ref: BOGUS }], decisions: [], action_items: [], open_questions: [], follow_ups: [], important_dates: [] };
-  if (task === 'action_plan') return { tasks: [{ task: 'Mock task', owner: null, deadline: null, evidence: ev(L(0)), refs: [L(0).id] }] };
+  if (task === 'action_plan') return { tasks: [
+    { task: 'Mock task', status: 'open', owner: null, owner_basis: 'none', deadline: null, evidence: ev(L(0)), refs: [L(0).id], resolution: null, resolution_refs: [] },
+    { task: 'Mock done task', status: 'completed_in_recording', owner: L(0).speaker, owner_basis: 'volunteered', deadline: null, evidence: ev(L(0)), refs: [L(0).id], resolution: 'Done in the meeting', resolution_refs: [L(0).id] },
+  ] };
   if (task === 'followup_email') return { subject: 'Follow-up', body: 'Hi [name],\nAs agreed, the price is $49 and we will ship by Monday.\nThanks', facts: [{ fact: 'something', evidence: ev(L(0)), refs: [L(0).id] }] };
   if (task === 'reply_draft') return { reply: 'Sure, I will send it first thing tomorrow.', addresses: [{ request: 'send the file', evidence: ev(L(0)), refs: [L(0).id] }] };
   if (task === 'interview_qa') return { is_interview: true, pairs: [{ question: L(0).text, asked_by: L(0).speaker, response: ev(L(1)), answered_by: L(1).speaker, refs: [L(0).id, L(1).id] }], quotes: [{ quote: ev(L(1)), speaker: L(1).speaker, refs: [L(1).id] }, { quote: 'A made-up quote nobody said', speaker: 'Speaker 1', refs: [L(0).id] }] };

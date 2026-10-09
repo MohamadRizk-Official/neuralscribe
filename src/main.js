@@ -1,8 +1,10 @@
 import { decodeToMono16k, peaks } from './audio.js';
+import { nameMapFromSegments } from './lib/speaker-names.js';
+import { toggleDetails } from './lib/details-pop.js';
 import { isConfigured } from './lib/supabase.js';
 import { mountAccountMenu, getSession } from './lib/account.js';
 import { saveTranscript, updateTranscriptText, updateRecordingType, stashPending, peekPending, clearPending } from './lib/transcripts.js';
-import { toStoredSegments } from './lib/segments.js';
+import { toStoredSegments, RECORDING_TYPE_LABEL } from './lib/segments.js';
 import { cleanText } from './lib/clean.js';
 import { mountInsights } from './insights/insights.js';
 import { sparkPulse } from './lib/brand.js';
@@ -59,6 +61,7 @@ const STAGE_SPAN = { decode: [0, 6], analyze: [6, 8], load: [8, 18], speakers: [
 // one-time model downloads shown to the user (MB, rounded): Whisper + speaker models
 const DOWNLOAD_MB = { fast: { webgpu: 200, wasm: 110 }, best: { webgpu: 600, wasm: 280 } };
 const QUALITY_LABEL = { good: 'Good', fair: 'Fair', difficult: 'Difficult' };
+const MODEL_LABEL = { tiny: 'Whisper tiny', base: 'Whisper base', small: 'Whisper small', turbo: 'Whisper large-v3 turbo' };
 const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const DOTS = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>';
 
@@ -490,8 +493,8 @@ function onComplete({ lines, language, ms, device, stats }) {
   let n = 0;
   for (const l of lines) {
     if (speakers.has(l.speaker)) continue;
-    if (l.speaker === UNKNOWN) speakers.set(UNKNOWN, { name: 'Unknown', color: UNKNOWN_COLOR });
-    else { speakers.set(l.speaker, { name: `Speaker ${n + 1}`, color: COLORS[n % COLORS.length] }); n++; }
+    if (l.speaker === UNKNOWN) speakers.set(UNKNOWN, { name: 'Unknown', color: UNKNOWN_COLOR, orig: 'Unknown' });
+    else { speakers.set(l.speaker, { name: `Speaker ${n + 1}`, color: COLORS[n % COLORS.length], orig: `Speaker ${n + 1}` }); n++; }
   }
   state = { ...state, lines, speakers, language: language || state.language, ms, device, stats, nextId: 1, activeIdx: -1, query: '' };
 
@@ -537,37 +540,36 @@ function pruneSpeakers() {
 const spk = (id) => state.speakers.get(id) || { name: id, color: UNKNOWN_COLOR };
 const realSpeakers = () => [...state.speakers.keys()].filter((id) => id !== UNKNOWN);
 
-let detailsOpen = false;
 function renderMeta() {
   const words = state.lines.reduce((t, l) => t + l.text.split(/\s+/).filter(Boolean).length, 0);
   const langs = 'English'; // V1 transcribes English only
   const chip = ([k, v]) => `<span>${esc(k)} <b>${esc(v)}</b></span>`;
   // primary: what most people want at a glance; the technical rest is one click away under "Details"
   const primary = [['Length', fmtTime(state.duration)], ['Speakers', String(realSpeakers().length)]];
-  const details = [
-    ['Mode', state.mode === 'fast' ? 'Fast' : 'Best Accuracy'],
-    ['Language', langs],
-    ['Words', words.toLocaleString()],
-    ['Processed in', `${fmtDur(state.ms / 1000)} · ${state.device === 'webgpu' ? 'GPU' : 'CPU'}`],
-  ];
   const unsure = state.lines.filter((l) => l.uncertain).length;
   els.resMeta.innerHTML = primary.map(chip).join('')
     + '<span class="type-slot" id="typeSlot"></span>'
     + (state.quality ? `<button type="button" class="meta-btn q-${state.quality.rating}" data-act="quality">Audio <b>${QUALITY_LABEL[state.quality.rating]}</b></button>` : '')
     + (unsure ? `<button type="button" class="meta-btn unsure" data-act="unsure">${unsure} part${unsure === 1 ? '' : 's'} to double-check</button>` : '')
     + (realSpeakers().length <= 1 ? `<button type="button" class="meta-btn" data-act="speaker-details" aria-expanded="${els.resultsPanel.classList.contains('solo-open')}">Speaker details</button>` : '')
-    + `<button type="button" class="meta-btn details-btn" data-act="details" aria-expanded="${detailsOpen}" aria-controls="resDetails">Details</button>`
-    + `<div class="meta-details" id="resDetails"${detailsOpen ? '' : ' hidden'}>${details.map(chip).join('')}</div>`;
+    + '<button type="button" class="meta-btn details-btn" data-act="details" aria-expanded="false" aria-haspopup="dialog">Details</button>';
   els.resMeta.querySelector('[data-act="speaker-details"]')?.addEventListener('click', (e) => {
     const open = els.resultsPanel.classList.toggle('solo-open');
     e.currentTarget.setAttribute('aria-expanded', String(open));
     if (open) requestAnimationFrame(() => { drawTimeline(); updatePlayhead(); });
   });
-  els.resMeta.querySelector('[data-act="details"]').addEventListener('click', (e) => {
-    detailsOpen = !detailsOpen;
-    $('resDetails').hidden = !detailsOpen;
-    e.currentTarget.setAttribute('aria-expanded', String(detailsOpen));
-  });
+  els.resMeta.querySelector('[data-act="details"]').addEventListener('click', (e) => toggleDetails(e.currentTarget, 'Recording details', [
+    ['Length', fmtTime(state.duration)],
+    ['Speakers', String(realSpeakers().length), state.speakers.has(UNKNOWN) ? 'plus some unclear parts' : ''],
+    ['Recording type', RECORDING_TYPE_LABEL[state.recordingType] || 'Auto'],
+    ['Language', langs],
+    ['Words', words.toLocaleString()],
+    ['Mode', state.mode === 'fast' ? 'Fast' : 'Best Accuracy'],
+    state.stats?.model && ['Speech model', MODEL_LABEL[state.stats.model] || state.stats.model],
+    ['Processed in', fmtDur(state.ms / 1000), state.device === 'webgpu' ? 'on your graphics card' : 'on your processor'],
+    state.quality && ['Audio quality', QUALITY_LABEL[state.quality.rating], state.quality.issues?.[0] || ''],
+    ['Audio', 'Stays on your device'],
+  ]));
   try { insights.refreshType(); } catch { /* the header can render before the tabs exist; they draw it then */ }
   els.resMeta.querySelector('[data-act="quality"]')?.addEventListener('click', (e) => showQualityInfo(e.currentTarget));
   els.resMeta.querySelector('[data-act="unsure"]')?.addEventListener('click', (e) => {
@@ -770,7 +772,7 @@ function openReassignMenu(anchor, g) {
 function newSpeaker() {
   const id = `NEW_${state.nextId++}`;
   const n = realSpeakers().length;
-  state.speakers.set(id, { name: `Speaker ${n + 1}`, color: COLORS[n % COLORS.length] });
+  state.speakers.set(id, { name: `Speaker ${n + 1}`, color: COLORS[n % COLORS.length], orig: `Speaker ${n + 1}` });
   return id;
 }
 
@@ -1077,7 +1079,7 @@ function toTxt(view = 'original') {
     return `[${fmtTime(first.start)}] ${spk(g.speaker).name}:\n${g.idx.map(text).join(' ')}`;
   }).join('\n\n') + '\n';
 }
-const segmentsPayload = () => toStoredSegments(state.lines, (id) => spk(id).name);
+const segmentsPayload = () => toStoredSegments(state.lines, (id) => spk(id).name, (id) => spk(id).orig);
 const base = () => (currentFile?.name || 'transcript').replace(/\.[^.]+$/, '');
 els.copyBtn.addEventListener('click', async () => {
   const clean = state.view === 'clean';
@@ -1109,6 +1111,7 @@ const insights = mountInsights({
     seek: (t) => seek(t, true),
     playbackTime: () => (els.player.getAttribute('src') ? els.player.currentTime || 0 : null),
     getRecordingType: () => state?.recordingType || null,
+    nameMap: () => nameMapFromSegments((state?.lines || []).map((l) => ({ speaker: spk(l.speaker).name, orig: spk(l.speaker).orig }))),
     setRecordingType: async (t) => { state.recordingType = t; if (save.id) await updateRecordingType(save.id, t); },
     duration: () => state?.duration || 0,
     autoGenerate: true, // a fresh transcription: summarize automatically once the user has turned summaries on

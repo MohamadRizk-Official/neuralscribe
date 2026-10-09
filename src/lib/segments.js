@@ -2,8 +2,10 @@
 // chapters and Ask answers point into. Shared by the browser and the server functions, so both agree on
 // line numbers and timestamps. Pure functions only (no browser or Node APIs).
 //
-// Stored in transcriptions.segments as [{ s, e, sp, t }] (compact keys). Older saved transcripts have no
-// segments; for those the paragraphs of transcript_text are used, with a timestamp per paragraph only.
+// Stored in transcriptions.segments as [{ s, e, sp, t, o? }] (compact keys): o is the speaker label the line was
+// first transcribed with ("Speaker 1"), kept when the speaker is renamed so AI results written with the old
+// label can show the new name (lib/speaker-names.js). Older saved transcripts have no segments; for those the
+// paragraphs of transcript_text are used, with a timestamp per paragraph only.
 
 export const RECORDING_TYPES = ['general', 'lecture', 'meeting', 'interview', 'podcast', 'voice_message'];
 export const RECORDING_TYPE_LABEL = {
@@ -13,9 +15,17 @@ export const normalizeRecordingType = (t) => (RECORDING_TYPES.includes(t) ? t : 
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
-// Browser result lines -> stored form. `nameOf` maps a speaker id to the display name the user sees.
-export function toStoredSegments(lines, nameOf) {
-  return lines.map((l) => ({ s: round2(l.start), e: round2(l.end), sp: nameOf(l.speaker), t: l.text }));
+// Browser result lines -> stored form. `nameOf` maps a speaker id to the display name the user sees;
+// `origOf` (optional) to the label it was first given.
+export function toStoredSegments(lines, nameOf, origOf) {
+  return lines.map((l) => {
+    const sp = nameOf(l.speaker), o = origOf?.(l.speaker);
+    return { s: round2(l.start), e: round2(l.end), sp, t: l.text, ...(o && o !== sp && { o }) };
+  });
+}
+// Saved-page segments -> stored form (keeps each line's original label)
+export function segmentsToStored(segments) {
+  return segments.map((x) => ({ s: round2(x.start), e: round2(x.end), sp: x.speaker, t: x.text, ...(x.orig && x.orig !== x.speaker && { o: x.orig }) }));
 }
 
 export function parseClock(str) {
@@ -48,7 +58,7 @@ export function segmentsFromRow(row) {
   if (Array.isArray(row?.segments) && row.segments.length) {
     const segments = row.segments
       .filter((x) => x && typeof x.t === 'string')
-      .map((x, id) => ({ id, start: Number(x.s) || 0, end: Number(x.e) || Number(x.s) || 0, speaker: String(x.sp || 'Unknown'), text: x.t.trim() }));
+      .map((x, id) => ({ id, start: Number(x.s) || 0, end: Number(x.e) || Number(x.s) || 0, speaker: String(x.sp || 'Unknown'), text: x.t.trim(), orig: x.o ? String(x.o) : String(x.sp || 'Unknown') }));
     return { segments, coarse: false };
   }
   const paras = paragraphsFromText(row?.transcript_text);

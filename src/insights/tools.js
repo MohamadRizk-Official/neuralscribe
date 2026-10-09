@@ -30,7 +30,7 @@ export const TOOL_INFO = {
   flashcards: { label: 'Flashcards', desc: 'Make flashcards that test what was actually said.', loading: 'Making flashcards' },
   quiz: { label: 'Practice Quiz', desc: 'Test yourself one question at a time, with the proof from the recording after every answer.', loading: 'Writing quiz questions' },
   meeting_recap: { label: 'Meeting Recap', desc: 'Write a clean recap: overview, decisions, action items, open questions and dates.', loading: 'Writing the meeting recap' },
-  action_plan: { label: 'Action Plan', desc: 'Turn the tasks that were stated into a plan grouped by owner.', loading: 'Building the action plan' },
+  action_plan: { label: 'Action Plan', desc: 'What still needs to happen after this recording, with who and by when.', loading: 'Building the action plan' },
   followup_email: { label: 'Follow-up Email', desc: 'You say what the email should be about; SparkScribe fills in the details from the recording.', loading: 'Drafting the email', draft: true },
   reply_draft: { label: 'Reply Draft', desc: 'You say what the reply should be about; SparkScribe fills in the details from the recording.', loading: 'Drafting a reply', draft: true },
   interview_qa: { label: 'Interview Q&A', desc: 'Turn the conversation into a clean Q&A with verbatim quotes.', loading: 'Organizing questions and answers' },
@@ -129,10 +129,13 @@ export function artifactBlocks(kind, c, timeOf) {
       section('Follow-ups', c.follow_ups, (x) => li(x.text, x.refs));
       section('Important dates', c.important_dates, (x) => li(`${x.when}: ${x.what}`, x.refs));
       break;
-    case 'action_plan':
-      if (!c.tasks?.length) p('No tasks were stated in this recording.');
-      for (const [owner, tasks] of groupByOwner(c.tasks || [])) section(owner, tasks, action);
+    case 'action_plan': {
+      const { open, done } = planParts(c);
+      if (!open.length) p('Nothing is left to do after this recording.');
+      section('Still to do', open, (a) => li(`${a.task} — ${ownerText(a)} · ${a.deadline || 'No deadline'}`, a.refs));
+      section('Completed in this conversation', done, (a) => li(`${a.task}${a.resolution ? ` — ${a.resolution}` : ''}`, a.resolution_refs?.length ? a.resolution_refs : a.refs));
       break;
+    }
     case 'followup_email':
       B.push({ t: 'meta', text: 'Draft — review before sending.' });
       p(`Subject: ${c.subject}`);
@@ -168,6 +171,17 @@ export function blocksToText(blocks) {
     if (b.t === 'li') return `- ${b.text}${t}`;
     return `${b.text}${t}`;
   }).join('\n').replace(/^\n+/, '').trim() + '\n';
+}
+
+// Action Plan parts. Results made before statuses existed have none: every task counts as open.
+function planParts(c) {
+  const tasks = c.tasks || [];
+  const st = (t) => t.status || 'open';
+  return { open: tasks.filter((t) => st(t) === 'open'), done: tasks.filter((t) => st(t) === 'completed_in_recording'), other: tasks.filter((t) => !['open', 'completed_in_recording'].includes(st(t))).length };
+}
+function ownerText(t) {
+  if (!t.owner) return 'Owner not specified';
+  return t.owner_basis === 'inferred' ? `Likely owner: ${t.owner}` : t.owner;
 }
 
 function groupByOwner(tasks) {
@@ -420,9 +434,18 @@ export function createToolsUI(api) {
           ${list('Open questions', c.open_questions, (x) => `<li><span>${esc(x.text)}</span>${chips(x.refs)}</li>`)}
           ${list('Follow-ups', c.follow_ups, (x) => `<li><span>${esc(x.text)}</span>${chips(x.refs)}</li>`)}
           ${list('Important dates', c.important_dates, (x) => `<li><span><b>${esc(x.when)}</b> — ${esc(x.what)}</span>${chips(x.refs)}</li>`)}`;
-      case 'action_plan':
-        return c.tasks?.length ? groupByOwner(c.tasks).map(([owner, tasks]) => `<section class="tool-sec"><h4>${esc(owner)} <span class="ins-sub">· ${tasks.length}</span></h4><ul class="ins-list">${tasks.map(action).join('')}</ul></section>`).join('')
-          : '<p class="ins-none">No tasks were stated in this recording.</p>';
+      case 'action_plan': {
+        // only what still has to happen is the plan; things done during the conversation sit below, folded
+        const { open, done, other } = planParts(c);
+        const card = (x) => `<li class="plan-task">
+          <div class="plan-what">${esc(x.task)}</div>
+          <div class="plan-meta"><span class="${x.owner ? '' : 'ns'}">${esc(ownerText(x))}</span><span class="${x.deadline ? '' : 'ns'}">${esc(x.deadline || 'No deadline')}</span>${at(x.refs?.[0])}</div>
+          ${x.evidence ? `<details class="plan-ev"><summary>Why</summary><p>“${esc(x.evidence)}”</p>${chips(x.refs)}</details>` : ''}
+        </li>`;
+        return `${open.length ? `<ul class="plan-list">${open.map(card).join('')}</ul>` : '<p class="ins-none">Nothing is left to do after this recording.</p>'}
+          ${done.length ? `<details class="plan-done"><summary>Completed in this conversation <span class="ins-sub">· ${done.length}</span></summary><ul class="ins-list">${done.map((x) => `<li class="plan-done-item"><span class="plan-check" aria-hidden="true">✓</span><span><b>${esc(x.task)}</b>${x.resolution ? `<span class="ins-sub"> — ${esc(x.resolution)}</span>` : ''}</span>${at((x.resolution_refs?.length ? x.resolution_refs : x.refs)?.[0])}</li>`).join('')}</ul></details>` : ''}
+          ${other ? `<p class="ins-sub plan-note">${other} other mention${other === 1 ? ' was' : 's were'} left out: only ideas, cancelled, or unclear.</p>` : ''}`;
+      }
       case 'followup_email':
         return `<div class="draft"><div class="draft-subject"><span class="ins-label">Subject</span> ${esc(c.subject)}</div><div class="draft-body">${esc(c.body)}</div></div>
           ${c.unverified?.length ? `<div class="ins-msg warn"><span>Check before sending — not found in the recording: ${c.unverified.map((d) => `<b>${esc(d)}</b>`).join(', ')}</span></div>` : ''}
