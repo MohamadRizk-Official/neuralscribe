@@ -3247,3 +3247,4 @@ html.bg-paused .bg *, html.bg-paused .bg { animation-play-state: paused !importa
   .dz-orbit span { animation: none; opacity: .18; }
   .dz-orbit span:nth-child(1) { transform: scale(.36); } .dz-orbit span:nth-child(2) { transform: scale(.58); } .dz-orbit span:nth-child(3) { transform: scale(.82); opacity: .1; }
 }
+:root[data-theme="light"] .segctl [aria-checked="true"] { color: #0b1030; }
