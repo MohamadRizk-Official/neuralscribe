@@ -185,7 +185,9 @@ els.cpuWhy.addEventListener('click', (e) => { e.preventDefault(); showDeviceInfo
 
 // ---------- file intake ----------
 ['dragenter', 'dragover'].forEach((ev) => els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.add('over'); }));
-['dragleave', 'drop'].forEach((ev) => els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.remove('over'); }));
+// moving between the box's own children fires dragleave too: only a real exit ends the drag-over state
+els.dropzone.addEventListener('dragleave', (e) => { e.preventDefault(); if (!els.dropzone.contains(e.relatedTarget)) els.dropzone.classList.remove('over'); });
+els.dropzone.addEventListener('drop', (e) => { e.preventDefault(); els.dropzone.classList.remove('over'); });
 els.dropzone.addEventListener('drop', (e) => { const f = e.dataTransfer.files?.[0]; if (f) start(f); });
 els.fileInput.addEventListener('change', () => { const f = els.fileInput.files?.[0]; if (f) start(f); els.fileInput.value = ''; });
 window.addEventListener('paste', (e) => {
@@ -1210,23 +1212,35 @@ function demoSwitch(buttons, panel, attr, pressedAttr) {
   if (c) demoSwitch([...document.querySelectorAll('[data-make]')], c, 'make', 'aria-pressed');
 }
 
-// ---------- home polish: spark → upload continuity, transcript demo ----------
+// ---------- home polish: upload spark, transcript demo ----------
 const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document.hidden;
 
-// When the header bolt flashes (every 10 s), a signal runs one lap around the upload area's edge.
+// The spark above "Drop a file or browse" ignites once on every new pointer entry (light runs from the bolt
+// out through the bars), resets when the pointer leaves, and plays a stronger version when a file is dragged
+// in. The energy edge pauses while the upload area is off screen or the window is in the background.
 {
-  const hi = document.querySelector('.brand .spark-mark .sl.c'); // the spark's light: its idle animation marks each ignition
-  const lap = () => {
-    if (calmMotion.matches || !onLanding()) return;
-    els.dropzone.classList.remove('lap');
-    void els.dropzone.offsetWidth;
-    els.dropzone.classList.add('lap');
+  const icon = els.dropzone.querySelector('.dz-icon');
+  let dragInside = false;
+  const ignite = (strong) => {
+    if (calmMotion.matches || !icon) return;
+    icon.classList.remove('dz-spark', 'dz-spark-strong');
+    void icon.offsetWidth;                         // restart the animation from the beginning
+    icon.classList.add(strong ? 'dz-spark-strong' : 'dz-spark');
   };
-  const onIdle = (e) => { if (e.animationName === 'sp-idle-light-c') setTimeout(lap, 120); };
-  hi?.addEventListener('animationstart', onIdle);
-  hi?.addEventListener('animationiteration', onIdle);
-  els.dropzone.addEventListener('animationend', (e) => { if (e.animationName === 'dz-lap') els.dropzone.classList.remove('lap'); });
+  els.dropzone.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'touch') ignite(false); });
+  els.dropzone.addEventListener('pointerleave', () => { if (!dragInside) icon?.classList.remove('dz-spark', 'dz-spark-strong'); });
+  els.dropzone.addEventListener('dragenter', () => { if (!dragInside) { dragInside = true; ignite(true); } });
+  const dragOut = () => { dragInside = false; icon?.classList.remove('dz-spark', 'dz-spark-strong'); };
+  els.dropzone.addEventListener('dragleave', (e) => { if (!els.dropzone.contains(e.relatedTarget)) dragOut(); });
+  els.dropzone.addEventListener('drop', dragOut);
+
+  let onScreen = true;
+  const still = () => els.dropzone.classList.toggle('dz-still', !onScreen || document.hidden || !document.hasFocus());
+  if ('IntersectionObserver' in window) new IntersectionObserver(([en]) => { onScreen = en.isIntersecting; still(); }).observe(els.dropzone);
+  document.addEventListener('visibilitychange', still);
+  window.addEventListener('blur', still);
+  window.addEventListener('focus', still);
 }
 
 // The transcript example plays along slowly while it is on screen (like the real Play along view).
@@ -1245,6 +1259,14 @@ const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document
       if (en.isIntersecting) timer = setInterval(step, 2600);
     }, { threshold: 0.4 }).observe(lines[0].parentElement);
   }
+  // like the real transcript: click a line (its timestamp) to jump there
+  lines.forEach((l, n) => {
+    l.tabIndex = 0;
+    l.setAttribute('role', 'button');
+    const go = () => { lines.forEach((x) => x.classList.remove('hl')); l.classList.add('hl'); i = n; clearInterval(timer); timer = setInterval(step, 2600); };
+    l.addEventListener('click', go);
+    l.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
 }
 
 // the mascot: a small audio companion (src/mascot/mascot.js)

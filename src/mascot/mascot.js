@@ -17,8 +17,8 @@
 //   • everything runs locally: no network, no sound
 import './mascot.css';
 import { Animator, CLIPS, REST, DIM, K, support, climbRise, ss } from './motion.js';
+import { MASCOT_KEY, getMascotPref } from '../lib/prefs.js';
 
-const PREF_KEY = 'sparkscribe.mascot';
 const POS_KEY = 'sparkscribe.mascot.pos';
 const TRAVEL_KEY = 'sparkscribe.mascot.travel';
 const VIEW = 4.6;                         // = stage.js VIEW (body units across the canvas)
@@ -32,8 +32,6 @@ const wrap = (a) => { a = ((a + PI) % (2 * PI) + 2 * PI) % (2 * PI) - PI; return
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.5c.7 6 2.6 8.6 9.5 10.5-6.9 1.9-8.8 4.5-9.5 10.5-.7-6-2.6-8.6-9.5-10.5C9.4 10.1 11.3 7.5 12 1.5Z" fill="currentColor"/></svg>';
 const INTERACTIVE = 'a,button,input,select,textarea,summary,label,[role="button"],[tabindex],[contenteditable],.dropzone';
 
-function readPref() { try { return ['on', 'quiet', 'off'].includes(localStorage.getItem(PREF_KEY)) ? localStorage.getItem(PREF_KEY) : 'on'; } catch { return 'on'; } }
-function writePref(v) { try { localStorage.setItem(PREF_KEY, v); } catch { /* fine */ } }
 
 const CANCEL = { cancelled: true };
 let instance = null;
@@ -45,7 +43,7 @@ export function mountMascot({ page = 'other' } = {}) {
   const calm = () => calmQ.matches;
   const touch = matchMedia('(hover: none), (pointer: coarse)').matches || innerWidth < 640;
   const readingPage = page === 'transcript';
-  let pref = readPref();
+  let pref = getMascotPref();
 
   // ---------- DOM: a floor shadow, the canvas (travels with the mascot), effects, and a round hit area ----------
   const el = document.createElement('div');
@@ -471,15 +469,13 @@ export function mountMascot({ page = 'other' } = {}) {
   const canAct = () => live() && !calm() && mood === 'idle' && mode === 'stand' && !taskActive && !peek && !grab && !fileDrag.active && !hovering && !busy() && !reading();
   function autonomy() {
     if (clock < autoAt) return;
-    autoAt = clock + rand(8, 20);
-    if (!canAct() || pref === 'off') return;
+    autoAt = clock + rand(8, 12);
+    if (!canAct() || pref !== 'on') return;
     const dz = document.getElementById('dropzone');
     const dzOK = page === 'home' && dz && dz.offsetParent !== null;
     const far = Math.abs(X - homeX()) > 3 * k;
     const cursorNear = clock - cursor.t < 3 && Math.abs(cursor.x - X) < 520 && Math.abs(cursor.x - X) > 2 * k;
-    const b = quiet()
-      ? pick([['nothing', 60], ['lookAround', 25], ['footTap', 15]])
-      : touch
+    const b = touch
         ? pick([['nothing', 40], ['lookAround', 20], ['footTap', 12], ['hop', 8], ['stretch', 10], ['sit', 10]])
         : pick([['nothing', 26], ['lookAround', 14], ['footTap', 8], ['hop', 5], ['stretch', 6], ['sit', 6], ['rest', 3],
           ['steps', 10], ['wander', 4], ['home', far ? 9 : 0], ['inspect', dzOK ? 6 : 0], ['climb', readingMode ? 0 : 6],
@@ -600,7 +596,7 @@ export function mountMascot({ page = 'other' } = {}) {
     anim.setBase('working', {}, 0.4);
     for (;;) {
       await wait(rand(3, 6), id);
-      if (quiet()) continue;
+      if (quiet() && Math.random() < 0.6) continue;
       const p = document.getElementById('progressPanel');
       const a = pick([['tap', 28], ['look', 30], ['listen', 22], ['nod', 12], ['sit', clock - workSince > 25 ? 8 : 0]]);
       if (a === 'tap') await act(CLIPS.footTap, id);
@@ -725,7 +721,7 @@ export function mountMascot({ page = 'other' } = {}) {
     clearTimeout(clickT);
     clickT = setTimeout(() => {
       const n = clicks; clicks = 0;
-      if (calm() || quiet() || mode !== 'stand') { E.flash('happy', 900); E.pulse(1); return; }
+      if (calm() || mode !== 'stand') { E.flash('happy', 900); E.pulse(1); return; }
       if (n >= 3) run(async (id) => { await ready(id); E.flash('success', 1500); E.gem('success', 1400); E.pulse(3); fx('sparkles'); await act(CLIPS.cheer, id); });
       else if (n === 2) run(async (id) => { await ready(id); E.flash('happy', 900); await act(CLIPS.spin, id); });
       else if (onGem) run(async (id) => { await ready(id); E.gem('flash', 900); E.flash('bright', 600); await act(CLIPS.gemTouch, id); });
@@ -752,7 +748,7 @@ export function mountMascot({ page = 'other' } = {}) {
   const dropzone = () => document.getElementById('dropzone');
   function fileDragAllowed() {
     const dz = dropzone();
-    return page === 'home' && live() && !quiet() && dz && dz.offsetParent !== null && mood !== 'working' && !grab;
+    return page === 'home' && live() && dz && dz.offsetParent !== null && mood !== 'working' && !grab;
   }
   function onDragMove(e) {
     if (!e.dataTransfer || ![...(e.dataTransfer.types || [])].includes('Files') || !fileDragAllowed()) return;
@@ -769,7 +765,7 @@ export function mountMascot({ page = 'other' } = {}) {
         // then runs over to the upload panel and waits beside it, watching the file
         const r = dropzone().getBoundingClientRect();
         const tx = X > r.left + r.width / 2 ? r.right + 1.7 * k : r.left - 1.7 * k;
-        if (!touch && Math.abs(tx - X) > 1.5 * k) await go(tx, id, { run: Math.abs(tx - X) > 6 * k, look: false });
+        if (!touch && !quiet() && Math.abs(tx - X) > 1.5 * k) await go(tx, id, { run: Math.abs(tx - X) > 6 * k, look: false });
         anim.setBase('excited', {}, 0.3);
         await until(() => !fileDrag.active, id);
       });
@@ -803,6 +799,7 @@ export function mountMascot({ page = 'other' } = {}) {
   async function runIn(id) {
     const target = moved ? clampX(X) : homeX();
     if (calm()) { X = target; peek = false; return; }
+    if (quiet()) { peek = false; await ready(id); E.flash('happy', 900); await act(CLIPS.nod, id); return; }
     peek = false; peekK = 0; mode = 'stand'; roll = 0;
     X = -1.6 * k; yaw = PI / 2; yawTw = null; speed = 0;
     anim.setBase('gait', gaitPrm, 0.01);
@@ -829,7 +826,8 @@ export function mountMascot({ page = 'other' } = {}) {
       E.flash('success', 1800); E.gem('success', 1600); E.pulse(3);
       run(async (id) => {
         await ready(id);
-        if (!quiet()) { setTimeout(() => fx('sparkles'), 380); await act(CLIPS.celebrate, id); }
+        setTimeout(() => fx('sparkles'), 380);
+        await act(CLIPS.celebrate, id);
         setMood('idle');
       });
     },
@@ -845,15 +843,14 @@ export function mountMascot({ page = 'other' } = {}) {
     'ask-done': () => {
       if (mood === 'thinking') toIdle();
       E.gem('flash', 600); E.flash('success', 900);
-      if (!quiet()) { E.pulse(1); run(async (id) => { await ready(id); await act(CLIPS.nod, id); }); }
+      E.pulse(1); run(async (id) => { await ready(id); await act(CLIPS.nod, id); });
       afterAction(4000);
     },
-    'ask-error': () => { if (mood === 'thinking') toIdle(); E.gem('', 1); E.flash('error', 1600); if (!quiet()) run((id) => act(CLIPS.wobble, id)); afterAction(4000); },
-    'quiz-correct': () => { E.flash('happy', 900); if (!quiet()) { E.pulse(1); run((id) => act(Math.random() < 0.5 ? CLIPS.nod : CLIPS.hop, id)); } },
-    'quiz-wrong': () => { E.flash('curious', 900); if (!quiet()) run((id) => act(CLIPS.wobble, id)); },
+    'ask-error': () => { if (mood === 'thinking') toIdle(); E.gem('', 1); E.flash('error', 1600); run((id) => act(CLIPS.wobble, id)); afterAction(4000); },
+    'quiz-correct': () => { E.flash('happy', 900); E.pulse(1); run((id) => act(Math.random() < 0.5 ? CLIPS.nod : CLIPS.hop, id)); },
+    'quiz-wrong': () => { E.flash('curious', 900); run((id) => act(CLIPS.wobble, id)); },
     'quiz-done': ({ score = 0, total = 1 }) => {
       const k2 = total ? score / total : 0;
-      if (quiet()) { E.flash(k2 >= 0.5 ? 'success' : 'happy', 1200); return; }
       run(async (id) => {
         await ready(id);
         if (k2 >= 0.8) { E.flash('success', 1600); E.gem('success', 1400); E.pulse(3); fx('sparkles'); await act(CLIPS.celebrate, id); }
@@ -864,7 +861,7 @@ export function mountMascot({ page = 'other' } = {}) {
     },
     'flashcard-flip': () => { if (!quiet() && Math.random() < 0.15 && mode === 'stand') run((id) => act(CLIPS.spin, id)); },
     'search-found': () => {
-      if (clock < cool.search || quiet()) return;
+      if (clock < cool.search) return;
       cool.search = clock + 12;
       lookAt(vw() * 0.3, innerHeight * 0.4, 1.8);
       E.flash('happy', 1000);
@@ -888,29 +885,21 @@ export function mountMascot({ page = 'other' } = {}) {
   addEventListener('resize', () => { size(); if (mode === 'stand') X = !moved && !taskActive && !loco ? homeX() : clampX(X); }, { passive: true });
   if (!touch) addEventListener('pointermove', onPointerMove, { passive: true });
 
-  // ---------- On / Quiet / Off ----------
+  // ---------- On / Quiet / Off (chosen in Settings → Preferences, src/lib/prefs.js) ----------
   function applyPref() {
     el.classList.toggle('m-off', pref === 'off');
-    document.querySelectorAll('.mascot-toggle').forEach((b) => { b.textContent = `Mascot: ${pref[0].toUpperCase()}${pref.slice(1)}`; });
-    if (pref === 'off') { cancelTask(); stop(); } else start();
+    if (pref === 'off') { cancelTask(); stop(); return; }
+    if (!booted) bootSoon(); else start();
   }
-  function cycle() {
-    pref = pref === 'on' ? 'quiet' : pref === 'quiet' ? 'off' : 'on';
-    writePref(pref); applyPref();
-    if (pref === 'on') { E.flash('happy', 900); run((id) => act(CLIPS.hop, id)); }
+  function setPref(v) {
+    if (!['on', 'quiet', 'off'].includes(v) || v === pref) return;
+    const was = pref;
+    pref = v; applyPref();
+    if (v !== 'on') { cancelTask(); peek = peek && readingMode; }
+    if (was === 'off' && stage) run(async (id) => { await wait(0.3, id); E.flash('happy', 900); await act(CLIPS.hop, id); });
   }
-  function mountToggle(container) {
-    if (!container || container.querySelector('.mascot-toggle')) return;
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'mascot-toggle';
-    b.title = 'On: lively · Quiet: stays put, no big reactions · Off: hidden';
-    b.addEventListener('click', cycle);
-    container.appendChild(b);
-    applyPref();
-  }
-  mountToggle(document.querySelector('.foot'));
-  addEventListener('storage', (e) => { if (e.key === PREF_KEY) { pref = readPref(); applyPref(); } });
-  addEventListener('sparkscribe:mascot-cycle', cycle);   // from the account menu
+  addEventListener('sparkscribe:mascot-pref', (e) => setPref(e.detail));
+  addEventListener('storage', (e) => { if (e.key === MASCOT_KEY) setPref(getMascotPref()); });   // other tabs
 
   // ---------- start: load the 3D character once the page is ready ----------
   let travelled = false;
@@ -924,6 +913,7 @@ export function mountMascot({ page = 'other' } = {}) {
     stageEl.innerHTML = '<img class="m-still" src="/mascot/full.webp" alt="" draggable="false" />';
     Y = standY(); P = REST; place();
   }
+  let booted = false;
   const boot = () => import('./stage.js').then(({ createStage }) => {
     try { stage = createStage(canvas); } catch { fallback(); return; }
     size();
@@ -934,11 +924,16 @@ export function mountMascot({ page = 'other' } = {}) {
     if (travelled) run(async (id) => { await runIn(id); afterAction(5000); });
     else if (!peek) run(async (id) => { await wait(0.5, id); E.flash('happy', 900); await act(CLIPS.hop, id); });
   }).catch(fallback);
-  if ('requestIdleCallback' in window) requestIdleCallback(boot, { timeout: 1500 }); else setTimeout(boot, 300);
+  // Off: the 3D character isn't even loaded until it's switched on
+  function bootSoon() {
+    if (booted) return;
+    booted = true;
+    if ('requestIdleCallback' in window) requestIdleCallback(boot, { timeout: 1500 }); else setTimeout(boot, 300);
+  }
   applyPref();
 
   instance = {
-    cycle, mountToggle, get pref() { return pref; },
+    setPref, get pref() { return pref; },
     signal: (type, detail) => signals[type]?.(detail || {}),
   };
   if (import.meta.env?.DEV) {

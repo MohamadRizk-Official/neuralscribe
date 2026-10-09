@@ -33,7 +33,7 @@
       <!-- sparkscribe:brand -->
       <div class="topbar-right">
         <span class="chip chip-device" id="deviceChip" role="button" tabindex="0" title="Where the AI runs"><span class="dot"></span>detecting…</span>
-        <span class="chip chip-muted hide-sm" title="Audio is decoded and transcribed on this device and never uploaded. If you're signed in, the finished transcript text is saved to your account. Summary, Notes, Ask and Insights send transcript text (never audio) to our AI provider, only when you use them."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>audio stays on this device</span>
+        <span class="chip chip-muted hide-sm" title="Audio is decoded and transcribed on this device and never uploaded. If you're signed in, the finished transcript text is saved to your account. Summary, Notes, Ask and Create send transcript text (never audio) to our AI provider, Anthropic, only when you use them. More in Settings → Privacy."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V6l-8-3Z"/></svg>audio stays on this device</span>
         <div id="accountSlot"></div>
       </div>
     </header>
@@ -318,10 +318,6 @@
 
     <audio id="player" preload="metadata"></audio>
     <div class="menu hidden" id="menu" role="menu"></div>
-
-    <footer class="foot mono">
-      Audio stays on your device · transcripts you save are private to your account · AI features send transcript text (never audio) to our AI provider, Anthropic, only when you use them
-    </footer>
 
     <script type="module" src="/src/main.js"></script>
   </body>

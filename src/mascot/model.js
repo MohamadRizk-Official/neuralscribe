@@ -193,9 +193,10 @@ export function buildMascot() {
     ringGlow.geometry.setAttribute('color', new BufferAttribute(col, 3));
   }
   ringGlow.position.z = 0.05; speaker.add(ringGlow);
-  // cone: dark, slightly purple, recessed toward the middle
+  // cone: dark, slightly purple, recessed toward the middle; closed in the center, so the eye can move over it
+  // without ever showing the socket behind
   const coneMat = new MeshStandardMaterial({ color: '#1a1040', roughness: 0.5, metalness: 0.25, emissive: new Color('#5a22c8'), emissiveIntensity: 0.45, side: DoubleSide });
-  const cone = new Mesh(new LatheGeometry([new Vector2(0.455, 0.03), new Vector2(0.4, 0.0), new Vector2(0.31, -0.05), new Vector2(0.23, -0.08), new Vector2(0.19, -0.085)], 48), coneMat);
+  const cone = new Mesh(new LatheGeometry([new Vector2(0.455, 0.03), new Vector2(0.4, 0.0), new Vector2(0.31, -0.05), new Vector2(0.23, -0.08), new Vector2(0.12, -0.09), new Vector2(0.001, -0.092)], 48), coneMat);
   cone.rotation.x = Math.PI / 2; speaker.add(cone);
   const groove = new Mesh(new TorusGeometry(0.33, 0.008, 6, 56), new MeshBasicMaterial({ color: '#7c4dff', transparent: true, opacity: 0.45, toneMapped: false }));
   groove.position.z = -0.05; speaker.add(groove);
@@ -293,7 +294,7 @@ export function buildMascot() {
   function surprise() { expr.surpriseT = 0; }
 
   // eye position inside the speaker: x, y in -1..1 (smoothed by the caller)
-  const EYE_R = 0.155;
+  const EYE_R = 0.12;
   function setEye(x, y) {
     const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
     eye.position.x = x * EYE_R; eye.position.y = y * EYE_R;

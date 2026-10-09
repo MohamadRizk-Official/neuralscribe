@@ -36,9 +36,6 @@
 .m-fx .fx-dizzy svg { width: 100%; height: 100%; }
 @keyframes fx-dizzy { 0% { transform: translateX(-50%) rotate(0deg); opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(-50%) rotate(540deg); opacity: 0; } }
 
-.mascot-toggle { font: inherit; font-size: inherit; letter-spacing: inherit; color: var(--muted); background: none; border: 0; padding: 0 0 0 10px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-.mascot-toggle:hover { color: var(--text); }
-.mascot-toggle:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
   .m-stage { transition: none; }

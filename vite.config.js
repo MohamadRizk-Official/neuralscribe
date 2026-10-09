@@ -15,8 +15,9 @@ const pages = {
   authCallback: 'auth/callback.html',
   library: 'library.html',
   transcript: 'transcript.html',
+  settings: 'settings.html',
 };
-const cleanRoutes = new Set(['/auth', '/auth/callback', '/library', '/transcript']);
+const cleanRoutes = new Set(['/auth', '/auth/callback', '/library', '/transcript', '/settings']);
 
 export default defineConfig(({ mode }) => ({
   // The Supabase settings live in Vercel as NEXT_PUBLIC_* (public, browser-safe values).
