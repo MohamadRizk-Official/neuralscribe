@@ -11,6 +11,7 @@ import { cleanText } from '../lib/clean.js';
 import { supabase } from '../lib/supabase.js';
 import { normalizeToolSettings, describeSettings } from '../lib/tool-settings.js';
 import { makeDialog } from '../library/dialogs.js';
+import { mascotSignal } from '../mascot/bus.js';
 import { fmtClock, splitCitations, RECORDING_TYPES, RECORDING_TYPE_LABEL, normalizeRecordingType, isNotFound, refersToPlayback } from '../lib/segments.js';
 
 const CONSENT_KEY = 'sparkscribe.aiConsent';
@@ -610,6 +611,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     st.askDraft = '';
     st.ask = { question, text: '', status: null, error: null };
     render();
+    mascotSignal('ask-start');
     try {
       const at = refersToPlayback(question) ? ctx.playbackTime() : null;
       const r = await askQuestion(ctx.getId(), question, at, {
@@ -618,9 +620,11 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
       });
       st.questions.push({ id: r.id, question, answer: r.answer, refs: r.refs, found: r.found, sourceVersion: st.contentVersion });
       st.ask = null;
+      mascotSignal('ask-done');
     } catch (err) {
       if (err instanceof ApiError && err.code === 'not_configured') st.notConfigured = true;
       st.ask.error = err;
+      mascotSignal('ask-error');
     }
     render();
   }

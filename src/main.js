@@ -6,6 +6,8 @@ import { toStoredSegments, RECORDING_TYPES } from './lib/segments.js';
 import { cleanText } from './lib/clean.js';
 import { mountInsights } from './insights/insights.js';
 import { sparkPulse } from './lib/brand.js';
+import { mountMascot } from './mascot/mascot.js';
+import { mascotSignal, mascotTravel } from './mascot/bus.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -219,10 +221,12 @@ function reset() {
   els.searchInput.value = '';
   closeMenu();
   show(els.dropPanel);
+  mascotSignal('reset');
 }
 function showError(msg) {
   els.errorText.textContent = msg;
   show(els.errorPanel);
+  mascotSignal('error');
 }
 
 // ---------- progress ----------
@@ -340,6 +344,8 @@ async function start(file) {
   currentFile = file;
   els.waveWrap.classList.remove('done');
   sparkPulse();
+  mascotSignal('file-accepted');
+  setTimeout(() => { if (currentFile === file && run) mascotSignal('working'); }, 900);
   downloads.clear();
   els.downloads.innerHTML = '';
   els.statusLine.textContent = '';
@@ -434,10 +440,12 @@ function onComplete({ lines, language, ms, device, stats }) {
   els.resTitle.title = currentFile.name;
   els.waveWrap.classList.add('done');
   sparkPulse();
+  mascotSignal('transcribe-done');
   setTimeout(() => {
     show(els.resultsPanel);
     renderAll();
     autoSave(); // in addition to showing the result; a failure never touches what's on screen
+    setTimeout(() => mascotSignal('results-shown'), 700);
   }, 900);
 }
 
@@ -1133,6 +1141,7 @@ function renderSaveBar() {
   bar.innerHTML = `<span class="save-icon">${icon}</span><span class="save-text">${text}</span>${action}`;
   bar.querySelector('[data-act="retry"]')?.addEventListener('click', doSave);
   bar.querySelector('[data-act="signin"]')?.addEventListener('click', signInToSave);
+  bar.querySelector('a[href^="/transcript"]')?.addEventListener('click', mascotTravel); // the mascot follows to the saved copy
 }
 
 // Back from signing in with a parked transcript: save it, then open it.
@@ -1201,26 +1210,6 @@ function demoSwitch(buttons, panel, attr, pressedAttr) {
   if (c) demoSwitch([...document.querySelectorAll('[data-make]')], c, 'make', 'aria-pressed');
 }
 
-// A very subtle background glow that drifts toward the cursor: desktop pointers only, never with
-// "reduce motion", and at most a few percent of the page.
-{
-  const glow = document.getElementById('bgCursor');
-  const fine = matchMedia('(hover: hover) and (pointer: fine)');
-  const calm = matchMedia('(prefers-reduced-motion: reduce)');
-  let raf = 0, x = 0, y = 0;
-  if (glow) window.addEventListener('pointermove', (e) => {
-    if (!fine.matches || calm.matches || e.pointerType !== 'mouse') return;
-    x = (e.clientX / innerWidth - 0.5) * 6;   // ±3%
-    y = (e.clientY / innerHeight - 0.5) * 4;  // ±2%
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
-      glow.style.setProperty('--cx', `${x.toFixed(2)}%`);
-      glow.style.setProperty('--cy', `${y.toFixed(2)}%`);
-    });
-  }, { passive: true });
-}
-
 // ---------- home polish: spark → upload continuity, resonance around the cursor, transcript demo ----------
 const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const finePointer = matchMedia('(hover: hover) and (pointer: fine)');
@@ -1241,55 +1230,141 @@ const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document
   els.dropzone.addEventListener('animationend', (e) => { if (e.animationName === 'dz-lap') els.dropzone.classList.remove('lap'); });
 }
 
-// Audio resonance: moving the mouse leaves soft, slightly vibrating rings, like sound spreading from a source.
-// Desktop mouse only, never with "reduce motion", only on the landing view, drawn only while rings are alive.
+// Energy through the background: moving the mouse sends short electric currents along the background grid
+// lines near the cursor, and nearby grid lines vibrate slightly, like sound. Nothing is a circle or a glow
+// blob; it follows the grid, then dissipates. Now and then a single current runs on its own. Desktop mouse
+// only, never with "reduce motion", only on the landing view; drawn only while something is alive.
 {
-  const cv = document.getElementById('bgRipple');
+  const cv = document.getElementById('bgEnergy');
   const ctx = cv?.getContext('2d');
-  const rings = [];
-  const LIFE = 1500, MAX = 8, STEP = 30, GAP = 90;
-  let last = null, lastT = 0, raf = 0, dpr = 1;
+  const GRID = 56, OFF = -0.5;                       // matches .bg-grid (56 px tiles)
+  const COLORS = [[34, 211, 238], [59, 130, 246], [167, 139, 250], [244, 114, 182]];
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const currents = [];
+  const vib = { x: 0, y: 0, e: 0 };
+  let raf = 0, dpr = 1, last = null, lastSpawn = 0, lastT = 0, ambientT = 0;
+  const snap = (v) => Math.round((v - OFF) / GRID) * GRID + OFF;
+  const mix = (k) => {                                // cyan → blue → violet → pink
+    const f = Math.min(0.999, Math.max(0, k)) * (COLORS.length - 1), i = Math.floor(f), t = f - i;
+    return COLORS[i].map((c, j) => Math.round(c + (COLORS[i + 1][j] - c) * t));
+  };
   const size = () => {
     dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = Math.round(innerWidth * dpr);
-    cv.height = Math.round(innerHeight * dpr);
+    cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr);
   };
-  const draw = (now) => {
+  const allowed = () => finePointer.matches && !calmMotion.matches && onLanding();
+  function spawn(px, py, strength, awayX = 0, awayY = 0) {
+    let gx = snap(px), gy = snap(py);
+    const pts = [[gx, gy]];
+    let d = DIRS[Math.floor(Math.random() * 4)];
+    if (Math.abs(awayX) + Math.abs(awayY) > 0 && Math.random() < 0.6) d = Math.abs(awayX) > Math.abs(awayY) ? [Math.sign(awayX), 0] : [0, Math.sign(awayY)];
+    const n = 3 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) {
+      gx += d[0] * GRID; gy += d[1] * GRID; pts.push([gx, gy]);
+      if (Math.random() < 0.45) d = d[0] ? [0, Math.random() < 0.5 ? 1 : -1] : [Math.random() < 0.5 ? 1 : -1, 0];
+    }
+    currents.push({ pts, len: n * GRID, t0: performance.now(), speed: 520 + Math.random() * 280, hue: Math.random() * 0.35, seed: Math.random() * 100, strength });
+    if (currents.length > 16) currents.shift();
+    wake();
+  }
+  function pointAt(c, s) {                            // position along a current's path at distance s
+    const seg = Math.min(c.pts.length - 2, Math.floor(s / GRID)), k = (s - seg * GRID) / GRID;
+    const [ax, ay] = c.pts[seg], [bx, by] = c.pts[seg + 1];
+    return [ax + (bx - ax) * k, ay + (by - ay) * k, bx - ax, by - ay];
+  }
+  function draw(now) {
     raf = 0;
+    const dt = Math.min(0.05, (now - (lastT || now)) / 1000); lastT = now;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, innerWidth, innerHeight);
-    for (let i = rings.length - 1; i >= 0; i--) {
-      const r = rings[i], t = (now - r.t0) / LIFE;
-      if (t >= 1) { rings.splice(i, 1); continue; }
-      const ease = 1 - (1 - t) ** 3;
-      const radius = 10 + 120 * ease;
-      const amp = 2.2 * (1 - t);
-      ctx.beginPath();
-      for (let k = 0; k <= 72; k++) {
-        const a = (k / 72) * Math.PI * 2;
-        const rr = radius + Math.sin(a * 7 + t * 14 + r.phase) * amp; // a faint vibration in the ring
-        const x = r.x + Math.cos(a) * rr, y = r.y + Math.sin(a) * rr;
-        if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // currents: a bright head with a fading, slightly jittery tail (electric) travelling along the grid
+    const TAIL = 84;
+    for (let i = currents.length - 1; i >= 0; i--) {
+      const c = currents[i];
+      const head = ((now - c.t0) / 1000) * c.speed;
+      if (head > c.len + TAIL) { currents.splice(i, 1); continue; }
+      const from = Math.max(0, head - TAIL), to = Math.min(head, c.len);
+      if (to <= from) continue;
+      const [r, g, b] = mix(c.hue + (head / (c.len + TAIL)) * 0.65);
+      const fade = head > c.len ? 1 - (head - c.len) / TAIL : 1;
+      for (const [w, alpha] of [[3.2, 0.10], [1.1, 0.62]]) {
+        ctx.beginPath();
+        for (let s2 = from, first = true; s2 <= to; s2 += 6) {
+          const [px, py, dx, dy] = pointAt(c, Math.min(s2, to));
+          const j = Math.sin(s2 * 0.42 + now * 0.03 + c.seed) * 1.3 * fade;   // electrical jitter across the line
+          const nx = dy ? j : 0, ny = dx ? j : 0;
+          if (first) { ctx.moveTo(px + nx, py + ny); first = false; } else ctx.lineTo(px + nx, py + ny);
+        }
+        ctx.strokeStyle = `rgba(${r},${g},${b},${(alpha * c.strength * fade).toFixed(3)})`;
+        ctx.lineWidth = w; ctx.stroke();
       }
-      ctx.strokeStyle = `rgba(${r.rgb}, ${(0.11 * (1 - t) ** 1.6).toFixed(3)})`;
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      if (head < c.len) {
+        const [hx, hy] = pointAt(c, head);
+        ctx.fillStyle = `rgba(236,254,255,${(0.75 * c.strength).toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(hx, hy, 1.5, 0, Math.PI * 2); ctx.fill();
+      }
     }
-    if (rings.length) raf = requestAnimationFrame(draw);
-  };
+    // resonance: grid lines near the cursor vibrate, strongest close to it, fading out with distance
+    if (vib.e > 0.01) {
+      const R = 130, t = now * 0.018;
+      const x0 = snap(vib.x - R), x1 = snap(vib.x + R), y0 = snap(vib.y - R), y1 = snap(vib.y + R);
+      for (let gx = x0; gx <= x1; gx += GRID) {
+        ctx.beginPath();
+        for (let yy = vib.y - R, first = true; yy <= vib.y + R; yy += 5) {
+          const d = Math.hypot(gx - vib.x, yy - vib.y) / R;
+          if (d > 1) { first = true; continue; }
+          const amp = (1 - d) ** 2 * 2.2 * vib.e;
+          const px = gx + Math.sin(yy * 0.11 + t) * amp;
+          if (first) { ctx.moveTo(px, yy); first = false; } else ctx.lineTo(px, yy);
+        }
+        ctx.strokeStyle = `rgba(103,232,249,${(0.16 * vib.e).toFixed(3)})`; ctx.lineWidth = 1; ctx.stroke();
+      }
+      for (let gy = y0; gy <= y1; gy += GRID) {
+        ctx.beginPath();
+        for (let xx = vib.x - R, first = true; xx <= vib.x + R; xx += 5) {
+          const d = Math.hypot(xx - vib.x, gy - vib.y) / R;
+          if (d > 1) { first = true; continue; }
+          const amp = (1 - d) ** 2 * 2.2 * vib.e;
+          const py = gy + Math.sin(xx * 0.11 + t) * amp;
+          if (first) { ctx.moveTo(xx, py); first = false; } else ctx.lineTo(xx, py);
+        }
+        ctx.strokeStyle = `rgba(196,181,253,${(0.14 * vib.e).toFixed(3)})`; ctx.lineWidth = 1; ctx.stroke();
+      }
+      vib.e *= 1 - Math.min(1, dt * 2.4);          // dissipates in about half a second
+    }
+    if (currents.length || vib.e > 0.01) raf = requestAnimationFrame(draw);
+    else ctx.clearRect(0, 0, innerWidth, innerHeight);
+  }
+  function wake() { if (!raf && !document.hidden) { lastT = 0; raf = requestAnimationFrame(draw); } }
+  function ambient() {
+    clearTimeout(ambientT);
+    ambientT = setTimeout(() => {
+      if (allowed() && !document.hidden && performance.now() - lastSpawn > 4000) {
+        spawn(Math.random() * innerWidth, 60 + Math.random() * innerHeight * 0.45, 0.5);
+      }
+      ambient();
+    }, 8000 + Math.random() * 6000);
+  }
   if (cv && ctx) {
     size();
     window.addEventListener('resize', size, { passive: true });
     window.addEventListener('pointermove', (e) => {
-      if (e.pointerType !== 'mouse' || !finePointer.matches || calmMotion.matches || !onLanding()) return;
+      if (e.pointerType !== 'mouse' || !allowed()) return;
       const now = performance.now();
-      if (last && Math.hypot(e.clientX - last.x, e.clientY - last.y) < STEP) return;
-      if (now - lastT < GAP) return;
-      last = { x: e.clientX, y: e.clientY }; lastT = now;
-      rings.push({ x: e.clientX, y: e.clientY, t0: now, phase: Math.random() * 6.28, rgb: rings.length % 2 ? '167,139,250' : '34,211,238' });
-      if (rings.length > MAX) rings.shift();
-      if (!raf) raf = requestAnimationFrame(draw);
+      vib.x = e.clientX; vib.y = e.clientY;
+      if (last) {
+        const dx = e.clientX - last.x, dy = e.clientY - last.y, d = Math.hypot(dx, dy);
+        vib.e = Math.min(1, vib.e + d / 220);
+        if (d >= 26 && now - lastSpawn >= 70) {
+          lastSpawn = now;
+          spawn(e.clientX, e.clientY, Math.min(1, 0.45 + d / 120), dx, dy);
+          last = { x: e.clientX, y: e.clientY };
+        }
+      } else last = { x: e.clientX, y: e.clientY };
+      wake();
     }, { passive: true });
+    ambient();
   }
 }
 
@@ -1310,3 +1385,6 @@ const onLanding = () => !els.dropPanel.classList.contains('hidden') && !document
     }, { threshold: 0.4 }).observe(lines[0].parentElement);
   }
 }
+
+// the mascot: a small audio companion (src/mascot/mascot.js)
+mountMascot({ page: 'home' });

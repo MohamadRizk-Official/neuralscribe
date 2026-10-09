@@ -1,0 +1,182 @@
+/* The SparkScribe mascot: one rig built from the canonical art (public/mascot/*.webp, aligned layers on one
+   canvas). Poses only move, rotate or squash those layers; the speaker and gem "speak" through overlays.
+   Driven by src/mascot/mascot.js. */
+
+.mascot {
+  --mh: 104px;                        /* rig height; width follows the art's aspect */
+  --mw: calc(var(--mh) * 1.1245);
+  --lean: 0deg; --look: 0px; --air: 0px;
+  position: fixed; left: 0; top: 0; z-index: 40;
+  width: var(--mw); height: var(--mh);
+  transform: translate3d(-200px, 100vh, 0);
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  touch-action: none; cursor: grab;
+  contain: layout style;
+}
+.mascot.m-touch { touch-action: manipulation; cursor: pointer; }
+.mascot.m-held { cursor: grabbing; }
+.mascot.m-off { display: none; }
+.mascot.m-passthrough { pointer-events: none; }
+.mascot img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-user-drag: none; }
+
+/* floor shadow: stays on the floor while the mascot is in the air */
+.m-shadow {
+  position: absolute; left: 22%; width: 56%; top: 90%; height: 9%;
+  border-radius: 50%; background: radial-gradient(closest-side, rgba(0,0,0,.55), rgba(0,0,0,0));
+  transform: translateY(var(--air)) scale(calc(1 - min(var(--airk, 0), .6)));
+  opacity: calc(1 - min(var(--airk, 0), .7)); pointer-events: none;
+}
+.m-rig { position: absolute; inset: 0; transform-origin: 50% 90%; }
+.m-lean { position: absolute; inset: 0; transform-origin: 50% 92%; transform: rotate(var(--lean)); transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+.m-pose { position: absolute; inset: 0; transform-origin: 50% 92%; }
+.m-arm, .m-foot, .m-gem { will-change: transform; }
+.m-arm.l { transform-origin: 18.8% 54.7%; }
+.m-arm.r { transform-origin: 81.3% 54.7%; }
+.m-foot.l { transform-origin: 34.3% 92%; }
+.m-foot.r { transform-origin: 68.5% 92%; }
+.m-gem { transform-origin: 50.7% 22.8%; }
+.m-upper { position: absolute; inset: 0; transform-origin: 50% 88%; }   /* body + arms + gem (squashes over the feet) */
+
+/* ---- speaker: the mascot's expression ---- */
+.m-speaker {
+  position: absolute; left: 50.5%; top: 61.6%; width: 35%; aspect-ratio: 1; transform: translate(-50%, -50%);
+  border-radius: 50%; pointer-events: none;
+}
+.m-speaker > i { position: absolute; inset: 0; border-radius: 50%; }
+.m-glow { background: radial-gradient(circle at calc(50% + var(--look)) 50%, rgba(255,255,255,.55) 0 6%, rgba(167,139,250,.32) 18%, rgba(34,211,238,.18) 42%, transparent 66%); mix-blend-mode: screen; opacity: .55; animation: spk-breathe 4.2s ease-in-out infinite; }
+.m-ring { inset: 9% !important; border: 2px solid rgba(34,211,238,.0); mix-blend-mode: screen; }
+.m-spin { inset: 4% !important; opacity: 0; background: conic-gradient(from 0deg, transparent 0 55%, rgba(34,211,238,.9) 70%, rgba(167,139,250,.9) 82%, rgba(244,114,182,.85) 92%, transparent 100%);
+  -webkit-mask: radial-gradient(closest-side, transparent 78%, #000 80% 96%, transparent 98%); mask: radial-gradient(closest-side, transparent 78%, #000 80% 96%, transparent 98%); mix-blend-mode: screen; }
+@keyframes spk-breathe { 0%, 100% { opacity: .38; } 50% { opacity: .7; } }
+
+.mascot[data-speaker="happy"] .m-glow { animation: spk-breathe 1.4s ease-in-out infinite; opacity: .85; }
+.mascot[data-speaker="excited"] .m-glow { animation: spk-breathe .55s ease-in-out infinite; }
+.mascot[data-speaker="excited"] .m-ring { border-color: rgba(244,114,182,.75); animation: spk-ring .55s ease-in-out infinite; }
+.mascot[data-speaker="curious"] .m-glow { animation: spk-uneven 1.6s ease-in-out infinite; }
+.mascot[data-speaker="processing"] .m-spin { opacity: 1; animation: spk-rotate 1.6s linear infinite; }
+.mascot[data-speaker="processing"] .m-glow { animation: spk-breathe 2s ease-in-out infinite; }
+.mascot[data-speaker="listening"] .m-ring { border-color: rgba(34,211,238,.6); animation: spk-ring 1.1s ease-in-out infinite; }
+.mascot[data-speaker="success"] .m-glow { opacity: 1; animation: none; background: radial-gradient(circle, rgba(255,255,255,.8) 0 8%, rgba(244,114,182,.45) 24%, rgba(34,211,238,.3) 46%, transparent 68%); }
+.mascot[data-speaker="error"] .m-glow { animation: spk-breathe 3.2s ease-in-out infinite; background: radial-gradient(circle, rgba(244,114,182,.35) 0 10%, rgba(124,58,237,.18) 40%, transparent 66%); }
+.mascot[data-speaker="error"] .m-body, .mascot[data-speaker="error"] .m-gem { filter: saturate(.7) brightness(.85); }
+.mascot[data-speaker="bright"] .m-glow { opacity: .95; animation: none; }
+@keyframes spk-ring { 0%, 100% { transform: scale(.94); opacity: .45; } 50% { transform: scale(1.04); opacity: 1; } }
+@keyframes spk-uneven { 0%, 100% { opacity: .4; } 18% { opacity: .85; } 30% { opacity: .5; } 62% { opacity: .78; } }
+@keyframes spk-rotate { to { transform: rotate(360deg); } }
+
+/* ---- gem: a small status light ---- */
+.m-gemglow { position: absolute; left: 50.7%; top: 11.5%; width: 26%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(34,211,238,.55), transparent); mix-blend-mode: screen; opacity: .25; pointer-events: none; }
+.mascot[data-gem="thinking"] .m-gemglow { animation: gem-think 1.4s ease-in-out infinite; }
+.mascot[data-gem="excited"] .m-gemglow { background: radial-gradient(closest-side, rgba(244,114,182,.75), transparent); animation: gem-think .6s ease-in-out infinite; }
+.mascot[data-gem="success"] .m-gemglow { animation: gem-rainbow 1.2s ease-out 1; }
+.mascot[data-gem="flash"] .m-gemglow { animation: gem-flash .7s ease-out 1; }
+.mascot[data-gem="dim"] .m-gemglow { opacity: 0; }
+.mascot[data-gem="dim"] .m-gem { filter: brightness(.75) saturate(.8); }
+@keyframes gem-think { 0%, 100% { opacity: .25; background: radial-gradient(closest-side, rgba(34,211,238,.55), transparent); } 50% { opacity: .85; background: radial-gradient(closest-side, rgba(167,139,250,.75), transparent); } }
+@keyframes gem-flash { 0% { opacity: .2; } 20% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); } 100% { opacity: .25; } }
+@keyframes gem-rainbow { 0% { opacity: .2; filter: hue-rotate(0deg); } 25% { opacity: 1; transform: translate(-50%, -50%) scale(1.6); } 100% { opacity: .25; filter: hue-rotate(300deg); } }
+
+/* ---- effects (spawned and removed by mascot.js) ---- */
+.m-fx { position: absolute; inset: -40%; pointer-events: none; overflow: visible; }
+.m-fx .fx-ring { position: absolute; left: 50.5%; top: 58%; width: 26%; aspect-ratio: 1; border-radius: 50%; border: 2px solid rgba(34,211,238,.8); transform: translate(-50%, -50%) scale(.6); animation: fx-ring .9s ease-out forwards; }
+.m-fx .fx-ring.p { border-color: rgba(244,114,182,.75); }
+.m-fx .fx-ring.v { border-color: rgba(167,139,250,.8); }
+@keyframes fx-ring { to { transform: translate(-50%, -50%) scale(2.6); opacity: 0; } }
+.m-fx .fx-star { position: absolute; left: 50%; top: 40%; width: 12px; height: 12px; transform: translate(-50%, -50%); animation: fx-star .95s cubic-bezier(.2,.8,.2,1) forwards; }
+.m-fx .fx-star svg { width: 100%; height: 100%; }
+@keyframes fx-star { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.3); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1) rotate(80deg); } }
+.m-fx .fx-q { position: absolute; left: 66%; top: 12%; font: 700 20px/1 var(--font, system-ui); color: #c4b5fd; text-shadow: 0 0 8px rgba(167,139,250,.6); animation: fx-q 1.6s ease-out forwards; }
+@keyframes fx-q { 0% { opacity: 0; transform: translateY(6px) scale(.7); } 20%, 70% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-6px); } }
+.m-fx .fx-dizzy { position: absolute; left: 50%; top: 14%; width: 44%; height: 12%; transform: translateX(-50%); animation: fx-dizzy 1.1s linear 1 forwards; }
+.m-fx .fx-dizzy i { position: absolute; width: 8px; height: 8px; top: 30%; }
+.m-fx .fx-dizzy i:nth-child(1) { left: 0; } .m-fx .fx-dizzy i:nth-child(2) { left: 45%; } .m-fx .fx-dizzy i:nth-child(3) { right: 0; }
+.m-fx .fx-dizzy svg { width: 100%; height: 100%; }
+@keyframes fx-dizzy { 0% { transform: translateX(-50%) rotate(0deg); opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(-50%) rotate(540deg); opacity: 0; } }
+.m-fx .fx-wave { position: absolute; left: 50.5%; top: 60%; width: 30%; aspect-ratio: 1; border-radius: 50%; border: 1.5px solid rgba(34,211,238,.55); border-left-color: transparent; border-bottom-color: transparent; transform: translate(-50%, -50%) rotate(-45deg) scale(.8); animation: fx-wave 1.2s ease-out forwards; }
+@keyframes fx-wave { to { transform: translate(-50%, -50%) rotate(-45deg) scale(1.9); opacity: 0; } }
+
+/* ---- poses (one-shot classes on .m-pose; parts animate via descendant rules) ---- */
+.m-pose.a-hop { animation: a-hop .7s cubic-bezier(.3,.7,.3,1) 1; }
+@keyframes a-hop { 0% { transform: none; } 18% { transform: scale(1.08, .9); } 45% { transform: translateY(-24%) scale(.96, 1.06); } 72% { transform: translateY(0) scale(1.08, .92); } 100% { transform: none; } }
+.m-pose.a-bounce { animation: a-bounce .55s ease-out 1; }
+@keyframes a-bounce { 0%, 100% { transform: none; } 35% { transform: translateY(-8%) scale(.98, 1.03); } 70% { transform: scale(1.04, .96); } }
+.m-pose.a-shift { animation: a-shift 1.4s ease-in-out 1; }
+@keyframes a-shift { 0%, 100% { transform: none; } 30% { transform: translateX(-3%) rotate(-3deg); } 65% { transform: translateX(2%) rotate(2deg); } }
+.m-pose.a-sway { animation: a-sway 2.2s ease-in-out 1; }
+@keyframes a-sway { 0%, 100% { transform: none; } 25% { transform: rotate(-4deg); } 75% { transform: rotate(4deg); } }
+.m-pose.a-tap .m-foot.r { animation: a-tap .9s ease-in-out 1; }
+@keyframes a-tap { 0%, 100% { transform: none; } 20%, 60% { transform: rotate(-14deg) translateY(-6%); } 40%, 80% { transform: none; } }
+.m-pose.a-wave .m-arm.r { animation: a-wave 1.2s ease-in-out 1; }
+@keyframes a-wave { 0%, 100% { transform: none; } 20% { transform: rotate(-58deg); } 40% { transform: rotate(-38deg); } 60% { transform: rotate(-58deg); } 80% { transform: rotate(-40deg); } }
+.m-pose.a-spin { animation: a-spin .75s cubic-bezier(.4,0,.2,1) 1; }
+@keyframes a-spin { 0% { transform: none; } 15% { transform: translateY(-6%) scale(1.04, .96); } 85% { transform: translateY(-6%) rotateY(360deg); } 100% { transform: none; } }
+.m-pose.a-surprised { animation: a-surprised .8s ease-out 1; }
+.m-pose.a-surprised .m-arm.l { animation: a-arms-up-l .8s ease-out 1; }
+.m-pose.a-surprised .m-arm.r { animation: a-arms-up-r .8s ease-out 1; }
+@keyframes a-surprised { 0% { transform: none; } 20% { transform: translateX(4%) scale(.94, 1.08); } 45% { transform: translateX(6%) scale(1.04, .95); } 100% { transform: none; } }
+@keyframes a-arms-up-l { 0%, 100% { transform: none; } 25%, 60% { transform: rotate(32deg); } }
+@keyframes a-arms-up-r { 0%, 100% { transform: none; } 25%, 60% { transform: rotate(-32deg); } }
+.m-pose.a-shake { animation: a-shake .6s ease-in-out 1; }
+@keyframes a-shake { 0%, 100% { transform: none; } 15%, 55% { transform: translateX(-4%) rotate(-3deg); } 35%, 75% { transform: translateX(4%) rotate(3deg); } }
+.m-pose.a-celebrate { animation: a-celebrate 1.5s cubic-bezier(.3,.7,.3,1) 1; }
+.m-pose.a-celebrate .m-arm.l { animation: a-cheer-l 1.5s ease-in-out 1; }
+.m-pose.a-celebrate .m-arm.r { animation: a-cheer-r 1.5s ease-in-out 1; }
+@keyframes a-celebrate { 0% { transform: none; } 12% { transform: scale(1.08, .9); } 32% { transform: translateY(-30%) rotate(-8deg) scale(.96, 1.06); } 52% { transform: translateY(-30%) rotate(352deg); } 70% { transform: translateY(0) scale(1.08, .92); } 85% { transform: translateY(-8%); } 100% { transform: none; } }
+@keyframes a-cheer-l { 0%, 100% { transform: none; } 20%, 80% { transform: rotate(48deg); } 50% { transform: rotate(30deg); } }
+@keyframes a-cheer-r { 0%, 100% { transform: none; } 20%, 80% { transform: rotate(-48deg); } 50% { transform: rotate(-30deg); } }
+.m-pose.a-land { animation: a-land .45s ease-out 1; }
+@keyframes a-land { 0% { transform: scale(1.14, .82); } 55% { transform: scale(.97, 1.04); } 100% { transform: none; } }
+.m-pose.a-bonk { animation: a-bonk .35s ease-out 1; }
+@keyframes a-bonk { 0% { transform: scale(.82, 1.12); } 100% { transform: none; } }
+.m-pose.a-curious { animation: a-curious 1.6s ease-in-out 1; }
+@keyframes a-curious { 0%, 100% { transform: none; } 20% { transform: rotate(-9deg) translateY(-3%); } 45% { transform: rotate(-9deg) translateY(-3%); } 65% { transform: rotate(7deg); } }
+.m-pose.a-sad { animation: a-sad 1.4s ease-out forwards; }
+.m-pose.a-sad .m-arm.l { animation: a-droop-l 1.4s ease-out forwards; }
+.m-pose.a-sad .m-arm.r { animation: a-droop-r 1.4s ease-out forwards; }
+@keyframes a-sad { 0% { transform: none; } 30% { transform: scale(1.03, .94) rotate(-4deg); } 100% { transform: scale(1.02, .95) rotate(-4deg); } }
+@keyframes a-droop-l { to { transform: rotate(-16deg); } }
+@keyframes a-droop-r { to { transform: rotate(16deg); } }
+.m-pose.a-think { animation: a-sway 2.4s ease-in-out infinite; }
+.m-pose.a-think .m-arm.r { animation: a-chin 2.4s ease-in-out infinite; }
+@keyframes a-chin { 0%, 100% { transform: rotate(-18deg); } 50% { transform: rotate(-26deg); } }
+.m-pose.a-notice { animation: a-notice .5s ease-out forwards; }
+@keyframes a-notice { to { transform: translateY(-3%) scale(1.02); } }
+.m-pose.a-dizzy { animation: a-dizzy 1.1s ease-in-out 1; }
+@keyframes a-dizzy { 0%, 100% { transform: none; } 20% { transform: rotate(-10deg); } 40% { transform: rotate(9deg); } 60% { transform: rotate(-7deg); } 80% { transform: rotate(5deg); } }
+.m-pose.a-wobble { animation: a-dizzy .7s ease-in-out 1; }
+
+/* looping states */
+.mascot.m-walking .m-foot.l { animation: walk-l .42s ease-in-out infinite; }
+.mascot.m-walking .m-foot.r { animation: walk-r .42s ease-in-out infinite; }
+.mascot.m-walking .m-upper { animation: walk-bob .21s ease-in-out infinite alternate; }
+.mascot.m-running .m-foot.l { animation-duration: .26s; }
+.mascot.m-running .m-foot.r { animation-duration: .26s; }
+.mascot.m-running .m-upper { animation-duration: .13s; }
+@keyframes walk-l { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-14%) rotate(-8deg); } }
+@keyframes walk-r { 0%, 100% { transform: translateY(-14%) rotate(8deg); } 50% { transform: translateY(0); } }
+@keyframes walk-bob { from { transform: translateY(0); } to { transform: translateY(-3%); } }
+.mascot.m-excited .m-pose:not([class*=" a-"]) { animation: ex-bounce .5s ease-in-out infinite; }
+@keyframes ex-bounce { 0%, 100% { transform: none; } 50% { transform: translateY(-7%) scale(.98, 1.03); } }
+.mascot.m-held .m-foot.l { animation: dangle-l .9s ease-in-out infinite; }
+.mascot.m-held .m-foot.r { animation: dangle-r .9s ease-in-out infinite; }
+.mascot.m-held .m-arm.l { transform: rotate(26deg); transition: transform .2s; }
+.mascot.m-held .m-arm.r { transform: rotate(-26deg); transition: transform .2s; }
+@keyframes dangle-l { 0%, 100% { transform: translateY(8%) rotate(10deg); } 50% { transform: translateY(10%) rotate(-6deg); } }
+@keyframes dangle-r { 0%, 100% { transform: translateY(10%) rotate(-6deg); } 50% { transform: translateY(8%) rotate(10deg); } }
+.mascot.m-airborne .m-arm.l { transform: rotate(22deg); }
+.mascot.m-airborne .m-arm.r { transform: rotate(-22deg); }
+.mascot.m-working .m-pose:not([class*=" a-"]) { animation: work-bob 2.4s ease-in-out infinite; }
+@keyframes work-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-2.5%); } }
+
+/* while a file is dragged nearer the upload panel, the speaker glows brighter (--ex: 0..1 from mascot.js) */
+.mascot.m-excited .m-glow { opacity: calc(.6 + var(--ex, 0) * .4); }
+
+/* settings control */
+.mascot-toggle { font: inherit; font-size: inherit; letter-spacing: inherit; color: var(--muted); background: none; border: 0; padding: 0 0 0 10px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.mascot-toggle:hover { color: var(--text); }
+.mascot-toggle:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .m-lean { transition: none; }
+}

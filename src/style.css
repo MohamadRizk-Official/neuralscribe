@@ -260,8 +260,17 @@ select option { background: var(--panel-solid); }
 .btn:hover { border-color: var(--line-2); background: rgba(20, 24, 48, .7); }
 .btn:focus-visible, .pb-btn:focus-visible, .pb-play:focus-visible, .pb-chip:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
-.btn-primary { background: var(--grad); border: none; color: #04050c; box-shadow: 0 8px 30px rgba(124, 92, 255, .35); }
-.btn-primary:hover { filter: brightness(1.1); background: var(--grad); }
+.btn-primary { position: relative; overflow: hidden; isolation: isolate; background: var(--grad); background-size: 140% 100%; background-position: 0% 50%; border: none; color: #04050c; box-shadow: 0 8px 30px rgba(124, 92, 255, .35);
+  transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s ease, background-position .5s ease, filter .25s ease; }
+/* premium hover: lifts toward you, the gradient strengthens, a soft cyan/violet/pink glow, one light sweep */
+.btn-primary::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; transform: translateX(-120%); background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.45) 50%, transparent 70%); }
+.btn-primary:hover { background: var(--grad); background-size: 140% 100%; background-position: 100% 50%; filter: saturate(1.15) brightness(1.06); transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 14px 34px -8px rgba(124, 92, 255, .55), 0 0 22px rgba(34, 211, 238, .28), 0 0 36px rgba(244, 114, 182, .18); }
+.btn-primary:hover::after { animation: btn-sweep .8s ease-out 1; }
+.btn-primary:active { transform: translateY(0) scale(.99); }
+@keyframes btn-sweep { to { transform: translateX(120%); } }
+.btn-primary:disabled:hover, .btn-primary.loading:hover { transform: none; filter: none; background-position: 0% 50%; box-shadow: 0 8px 30px rgba(124, 92, 255, .35); }
+.btn-primary:disabled:hover::after { animation: none; }
 .btn-group { display: inline-flex; }
 .btn-group .btn { border-radius: 0; margin-left: -1px; }
 .btn-group .btn:first-child { border-radius: 11px 0 0 11px; margin-left: 0; }
@@ -533,6 +542,7 @@ mark.cur { background: rgba(251, 191, 36, .6); }
 .btn.loading::after {
   content: ""; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px; border-radius: 50%;
   border: 2px solid rgba(4,5,12,.35); border-top-color: #04050c; animation: spin .7s linear infinite;
+  background: none; z-index: 1; transform: none;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner { width: 34px; height: 34px; border-radius: 50%; margin: 0 auto 18px; border: 3px solid rgba(140,160,255,.18); border-top-color: var(--cyan); animation: spin .8s linear infinite; }
@@ -1298,8 +1308,6 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 .hear-demo .dim { color: var(--muted); margin-top: 4px; }
 .hear-demo .draft { color: #c9d0ee; }
 
-/* background: a very subtle glow that follows the cursor (desktop only; see main.js) */
-.bg-cursor { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 42% 36% at calc(72% + var(--cx, 0%)) calc(34% + var(--cy, 0%)), rgba(34,211,238,.06), transparent 70%); }
 
 @media (max-width: 980px) {
   .hear-grid { grid-template-columns: minmax(0, 1fr); max-width: 560px; }
@@ -1318,21 +1326,9 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 
 /* upload: a signal that travels around the edge. At rest it runs one lap when the header bolt flashes (every
    10 s); on hover it keeps circling slowly; on drag-over two signals race around and the edge lights up. */
-.dz-trace { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-.dz-trace rect { x: 1px; y: 1px; width: calc(100% - 2px); height: calc(100% - 2px); rx: 14px; ry: 14px; fill: none; stroke: url(#traceGrad); stroke-width: 1.6; stroke-linecap: round; }
-.dz-trace-run { stroke-dasharray: 10 90; stroke-dashoffset: 100; opacity: 0; }
-.dz-trace-run.r2 { display: none; }
-.dropzone.lap .dz-trace-run { animation: dz-lap 3.4s cubic-bezier(.45,0,.25,1) 1; }
-@keyframes dz-lap { 0% { stroke-dashoffset: 100; opacity: 0; } 8% { opacity: .9; } 86% { opacity: .9; } 100% { stroke-dashoffset: 0; opacity: 0; } }
-.dropzone:hover .dz-trace-run { animation: dz-loop 4.8s linear infinite; opacity: .7; }
-.dropzone.over .dz-trace-run { animation: dz-loop 1.5s linear infinite; opacity: 1; stroke-width: 2; }
-.dropzone.over .dz-trace-run.r2 { display: inline; animation-delay: -.75s; }
-@keyframes dz-loop { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
 .dropzone.over .dz-icon { box-shadow: 0 0 46px rgba(34,211,238,.32), inset 0 0 22px rgba(34,211,238,.14); }
 .dropzone.over .dz-orbit span { animation-duration: 1.6s; }
 
-/* audio resonance around the cursor (desktop only; main.js draws it) */
-.bg-ripple { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 /* Hear it. Understand it. Use it.: name the real tabs these live in */
 .hear-head { display: grid; gap: 8px; }
@@ -1412,3 +1408,29 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
   .spark-mark { --gi: 1.1; --go: 1.12; }
   .spark-mark .sl.c { filter: none; }
 }
+
+/* ===== Background energy + upload perimeter ===== */
+/* electric current through the background grid around the cursor (desktop only; drawn by main.js) */
+.bg-energy { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* upload: a continuous cyan → blue → violet → pink energy trace circulating around the whole edge */
+@property --dz-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.dropzone::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; pointer-events: none;
+  background: conic-gradient(from var(--dz-a), rgba(34,211,238,.95), rgba(59,130,246,.55) 18%, rgba(167,139,250,.35) 35%, rgba(244,114,182,.7) 52%, rgba(167,139,250,.3) 68%, rgba(59,130,246,.55) 84%, rgba(34,211,238,.95));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: .62; animation: dz-energy 9s linear infinite;
+  transition: opacity .3s ease, padding .3s ease, filter .3s ease;
+}
+@keyframes dz-energy { to { --dz-a: 360deg; } }
+.dropzone:hover::after { opacity: .95; padding: 2px; filter: saturate(1.25) brightness(1.1); animation-duration: 5.5s; }
+.dropzone.over::after { opacity: 1; padding: 2.5px; filter: saturate(1.4) brightness(1.25) drop-shadow(0 0 6px rgba(34,211,238,.55)); animation-duration: 1.8s; }
+.dropzone.lap::after { animation-duration: 3s; opacity: .95; }
+.dropzone { border-color: transparent; }
+.dropzone:hover, .dropzone.over { border-color: transparent; }
+
+/* account menu: an item with a small second line (e.g. "Mascot · On") */
+.acct-plan-item { display: grid; }
+.acct-plan-item small { color: var(--dim); font-size: 11px; font-family: var(--mono); }
+.acct-plan-item small:empty { display: none; }
