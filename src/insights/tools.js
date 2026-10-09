@@ -5,15 +5,28 @@
 // outputs are stored and reopened for free. Interactive parts (flashcards, quiz) run entirely in the browser.
 import { fmtClock, RECORDING_TYPE_LABEL } from '../lib/segments.js';
 import { mascotSignal } from '../mascot/bus.js';
-import { TOOL_SETTINGS, MAX_INSTRUCTIONS, INSTRUCTIONS_MISSING, normalizeToolSettings, describeSettings } from '../lib/tool-settings.js';
+import { TOOL_SETTINGS, MAX_INSTRUCTIONS, INSTRUCTIONS_MISSING, normalizeToolSettings, describeSettings, quizQuestionCount } from '../lib/tool-settings.js';
+import { newRun, currentItem, answeredCount, correctCount, answer as gradeAnswer, overrideCorrect, advance, summary } from './quiz-engine.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// small line icons for the study screens (decorative: every state is also said in words)
+const svg = (d) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${d}</svg>`;
+const ICON = {
+  check: svg('<path d="M5 12.5 10 17.5 19.5 7"/>'),
+  x: svg('<path d="M7 7l10 10M17 7 7 17"/>'),
+  close: svg('<path d="M7 7l10 10M17 7 7 17"/>'),
+  headphones: svg('<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6"/>'),
+  quote: svg('<path d="M5 6h14M5 11h14M5 16h9"/>'),
+  loop: svg('<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7M20 4v4.7h-4.7M20 12a8 8 0 0 1-13.7 5.6L4 15.3M4 20v-4.7h4.7"/>'),
+  quiz: svg('<path d="M9.2 9.3a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.6v.6"/><circle cx="12" cy="17.6" r=".9" fill="currentColor" stroke="none"/><rect x="3.5" y="3.5" width="17" height="17" rx="5"/>'),
+};
 
 // ---------- catalog ----------
 export const TOOL_INFO = {
   study_guide: { label: 'Study Guide', desc: 'Build a study guide from what was taught: topics, concepts, examples and exam information.', loading: 'Writing your study guide' },
   flashcards: { label: 'Flashcards', desc: 'Make flashcards that test what was actually said.', loading: 'Making flashcards' },
-  quiz: { label: 'Practice Quiz', desc: 'Test yourself with questions answerable from the recording, then check your score.', loading: 'Writing quiz questions' },
+  quiz: { label: 'Practice Quiz', desc: 'Test yourself one question at a time, with the proof from the recording after every answer.', loading: 'Writing quiz questions' },
   meeting_recap: { label: 'Meeting Recap', desc: 'Write a clean recap: overview, decisions, action items, open questions and dates.', loading: 'Writing the meeting recap' },
   action_plan: { label: 'Action Plan', desc: 'Turn the tasks that were stated into a plan grouped by owner.', loading: 'Building the action plan' },
   followup_email: { label: 'Follow-up Email', desc: 'You say what the email should be about; SparkScribe fills in the details from the recording.', loading: 'Drafting the email', draft: true },
@@ -168,11 +181,12 @@ export function shortAnswerCorrect(given, q) {
  * @param {object} api  helpers from insights.js:
  *   type(), contentVersion(), artifact(kind, key), busy(kind, key), error(kind, key), generate(kind, settings, force),
  *   remove(artifact), saveProgress(artifact, progress), chips(refs, byId), segById(), loading(label), errorBox(err, act),
- *   artifactsOf(kind), makeDialog(className, html), showTab(name), openExport(preselect), copy(text, label), privacyLine
+ *   artifactsOf(kind), makeDialog(className, html), showTab(name), openExport(preselect), copy(text, label), privacyLine,
+ *   canPlay() → the recording's audio is open on this page, duration() → seconds
  */
 export function createToolsUI(api) {
   // sel: the settings the user is looking at for each tool (defaults to those of the latest result)
-  const ui = { tool: null, sel: {}, deck: new Map(), quiz: new Map() };
+  const ui = { tool: null, sel: {}, deck: new Map(), quiz: new Map(), autoStart: null, focus: null, quizKey: null };
   const keyOf = (kind, settings) => normalizeToolSettings(kind, settings).key;
   const latest = (kind) => api.artifactsOf(kind).filter((a) => a.content || a.status === 'generating')
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0] || null;
@@ -372,7 +386,6 @@ export function createToolsUI(api) {
         return `${c.summary ? `<p class="tool-lead">${esc(c.summary)}</p>` : ''}${topics('Chapter outline', c.outline)}
           ${list('Key takeaways', c.takeaways, (x) => `<li><span>${esc(x.text)}</span>${chips(x.refs)}</li>`)}${quotes(c.quotes)}`;
       case 'flashcards': return deckHtml(a, byId);
-      case 'quiz': return quizHtml(a, byId);
       default: return '';
     }
   }
@@ -406,55 +419,181 @@ export function createToolsUI(api) {
     </div>`;
   }
 
-  // ---------- quiz ----------
-  function quizState(a) {
+  // ---------- Practice Quiz ----------
+  // setup → one question at a time → instant feedback with the proof from the recording → result.
+  // The questions are the stored, grounded quiz; quiz-engine.js only orders, shuffles and scores them.
+  function quizView(a) {
     const k = `${a.id}:${a.updatedAt}`;
-    if (!ui.quiz.has(k)) ui.quiz.set(k, { i: 0, answers: [], done: false });
+    if (!ui.quiz.has(k)) ui.quiz.set(k, { phase: 'setup', run: null });
     return ui.quiz.get(k);
   }
-  function quizHtml(a, byId) {
-    const qs = a.content.questions || [];
-    if (!qs.length) return '<p class="ins-none">The recording didn’t support good quiz questions.</p>';
-    const s = quizState(a);
-    if (s.done) {
-      const score = s.answers.filter((x) => x?.correct).length;
-      const missed = qs.map((q, i) => [q, s.answers[i]]).filter(([, x]) => !x?.correct);
-      return `<div class="quiz-result">
-        <div class="quiz-score"><span class="big">${score} / ${qs.length}</span><span>${Math.round((score / qs.length) * 100)}%</span></div>
-        ${missed.length ? `<h4>Review these</h4><ol class="quiz-missed">${missed.map(([q]) => `<li><div>${esc(q.question)}</div><div class="quiz-correct">Answer: <b>${esc(q.answer)}</b></div>${q.explanation ? `<div class="ins-sub">${esc(q.explanation)}</div>` : ''}${api.chips(q.refs, byId)}</li>`).join('')}</ol>` : '<p class="tool-lead">All correct.</p>'}
-        <div class="deck-nav"><button class="btn btn-primary" type="button" data-act="retake">Retake quiz</button></div>
-        <p class="ins-sub">Retaking uses the same questions — no new generation.</p>
-      </div>`;
-    }
-    const q = qs[s.i];
-    const ans = s.answers[s.i];
-    const typeLabel = { multiple_choice: 'Multiple choice', true_false: 'True or false', short_answer: 'Short answer' }[q.type];
-    let input = '';
-    if (q.type === 'short_answer') {
-      input = ans ? `<div class="quiz-given">Your answer: <b>${esc(ans.given || '—')}</b></div>`
-        : `<form class="quiz-sa" data-act="sa"><input type="text" maxlength="200" aria-label="Your answer" placeholder="Type your answer" autocomplete="off" /><button class="btn btn-primary" type="submit">Check</button></form>`;
-    } else {
-      input = `<div class="quiz-options" role="group" aria-label="Answer options">${q.options.map((o, j) => {
-        const picked = ans?.given === o;
-        const cls = ans ? (o === q.answer ? 'right' : picked ? 'wrong' : 'dim') : '';
-        return `<button type="button" class="quiz-opt ${cls}" data-opt="${j}" ${ans ? 'disabled' : ''}>${q.type === 'multiple_choice' ? `<span class="opt-key">${String.fromCharCode(65 + j)}</span>` : ''}<span>${esc(o)}</span></button>`;
-      }).join('')}</div>`;
-    }
-    const feedback = ans ? `<div class="quiz-feedback ${ans.correct ? 'right' : 'wrong'}" role="status">
-        <b>${ans.correct ? 'Correct' : 'Not quite'}</b>
-        ${!ans.correct ? `<div>Correct answer: <b>${esc(q.answer)}</b></div>` : ''}
-        ${q.explanation ? `<div>${esc(q.explanation)}</div>` : ''}
-        <div>${api.chips(q.refs, byId)}</div>
-        ${q.type === 'short_answer' && !ans.correct && ans.given ? '<button class="btn btn-ghost btn-sm" type="button" data-act="mark-right">My answer was right</button>' : ''}
-      </div>` : '';
-    return `<div class="quiz" data-quiz="${a.id}">
-      <div class="quiz-top"><span class="mono">Question ${s.i + 1} of ${qs.length}</span><span class="ins-sub">${typeLabel}</span></div>
-      <div class="quiz-progress" aria-hidden="true"><span style="width:${(s.i / qs.length) * 100}%"></span></div>
-      <p class="quiz-q">${esc(q.question)}</p>
-      ${input}${feedback}
-      ${ans ? `<div class="deck-nav"><button class="btn btn-primary" type="button" data-act="qnext">${s.i === qs.length - 1 ? 'See score' : 'Next question'}</button></div>` : ''}
+  const crumb = () => `<nav class="study-crumb" aria-label="Breadcrumb"><button type="button" data-act="tools">Create</button><span aria-hidden="true">›</span><span aria-current="page">Practice Quiz</span></nav>`;
+
+  // QUESTION → ANSWER → PROOF: hear the moment (when the audio is open) or read the exact line
+  function proofHtml(q, byId) {
+    const s = q.refs?.length ? byId.get(q.refs[0]) : null;
+    if (!s) return '';
+    const t = fmtClock(s.start);
+    const play = api.canPlay?.();
+    return `<div class="proof">
+      ${play ? `<button class="hear" type="button" data-seek="${s.start}" data-ref="${s.id}">${ICON.headphones}<span>Hear it at ${t}</span></button>` : ''}
+      <details class="proof-line"><summary>${play ? `${ICON.quote}<span>Show the line</span>` : `${ICON.quote}<span>See it at ${t}</span>`}</summary>
+        <blockquote><span class="proof-meta"><span class="mono">${t}</span>${s.speaker ? ` · ${esc(s.speaker)}` : ''}</span><span class="proof-text">${esc(s.text)}</span>${play ? '' : `<button class="fb-link" type="button" data-seek="${s.start}" data-ref="${s.id}">Open in transcript</button>`}</blockquote>
+      </details>
     </div>`;
   }
+
+  function quizSetupHtml({ sel, a, busy, err, stale }) {
+    const spec = TOOL_SETTINGS.quiz;
+    const minutes = (api.duration?.() || 0) / 60;
+    const label = (name, v) => (name === 'size' ? String(quizQuestionCount(minutes, v)) : spec[name].options[v]);
+    const ctl = (name) => `<div class="setup-ctl"><span class="setup-label" id="ql-${name}">${esc(spec[name].label)}</span>
+      <div class="pick" role="radiogroup" aria-labelledby="ql-${name}">${Object.keys(spec[name].options).map((v) => `<button type="button" role="radio" aria-checked="${sel[name] === v}" tabindex="${sel[name] === v ? 0 : -1}" class="${sel[name] === v ? 'on' : ''}" data-set="${name}" data-val="${v}">${esc(label(name, v))}</button>`).join('')}</div></div>`;
+    const n = a?.content?.questions?.length || 0;
+    const empty = a?.content && !n;
+    const last = a?.progress?.last_score != null ? ` · Last score ${a.progress.last_score}/${a.progress.total}` : '';
+    return `<div class="study study-setup">
+      ${crumb()}
+      <section class="study-card setup-card" aria-labelledby="quizTitle">
+        <span class="study-badge" aria-hidden="true">${ICON.quiz}</span>
+        <h3 class="study-title" id="quizTitle">Practice Quiz</h3>
+        <p class="study-sub">Test yourself on this recording.</p>
+        <div class="setup-grid">${ctl('size')}${ctl('difficulty')}${ctl('types')}</div>
+        ${stale && !busy ? '<div class="ins-msg warn"><span>The transcript changed after these questions were written.</span><button class="btn btn-ghost btn-sm" type="button" data-act="regen">Update</button></div>' : ''}
+        ${err && !busy ? api.errorBox(err, 'regen', n ? "New questions couldn't be written; your current quiz still works." : "The quiz couldn't be created.") : ''}
+        ${busy ? api.loading(TOOL_INFO.quiz.loading) : `<button class="btn btn-primary study-start" type="button" data-act="start"${empty ? ' disabled' : ''}>Start Quiz <span aria-hidden="true">→</span></button>`}
+        <p class="setup-meta">${empty ? 'The recording didn’t support good questions with these settings.' : n ? `${n} question${n === 1 ? '' : 's'} ready${last} · retakes are free` : 'Questions are written from this recording once; retakes are free.'}</p>
+        ${!n && !busy ? api.privacyLine : ''}
+      </section>
+      ${a?.content ? `<div class="study-tools">
+        <button class="btn btn-ghost btn-sm" type="button" data-act="copy">Copy</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-act="export">Export…</button>
+        ${!stale && !busy ? '<button class="btn btn-ghost btn-sm" type="button" data-act="regen-confirm">New questions</button>' : ''}
+        <button class="btn btn-ghost btn-sm tool-del" type="button" data-act="delete">Delete quiz</button></div>` : ''}
+    </div>`;
+  }
+
+  function quizPlayHtml(a, v, byId) {
+    const qs = a.content.questions, run = v.run, it = currentItem(run), q = qs[it.qi], ans = run.answers[run.i];
+    const total = run.items.length, done = answeredCount(run), right = correctCount(run);
+    const kindLabel = { multiple_choice: 'Multiple choice', true_false: 'True or false', short_answer: 'Short answer' }[q.type] || '';
+    let answers;
+    if (q.type === 'short_answer') {
+      answers = ans
+        ? `<div class="sa-given ${ans.correct ? 'right' : 'wrong'}"><span class="sa-label">Your answer</span><b>${esc(ans.given)}</b><span class="ans-mark" aria-hidden="true">${ans.correct ? ICON.check : ICON.x}</span></div>`
+        : `<form class="sa" data-act="sa" novalidate><label class="sr-only" for="saInput">Your answer</label><input id="saInput" class="sa-input" type="text" maxlength="200" placeholder="Type your answer" autocomplete="off" enterkeyhint="done" /><button class="btn btn-primary" type="submit">Check</button></form>`;
+    } else {
+      const tf = q.type === 'true_false';
+      answers = `<div class="answers${tf ? ' tf' : ''}" role="group" aria-labelledby="qText">${it.order.map((j, pos) => {
+        const o = q.options[j];
+        const isRight = o === q.answer, picked = ans?.given === o;
+        const state = ans ? (isRight ? 'right' : picked ? 'wrong' : 'dim') : '';
+        const key = tf ? o : String.fromCharCode(65 + pos);
+        const sr = ans ? (isRight ? ', correct answer' : picked ? ', your answer, not correct' : '') : '';
+        return `<button type="button" class="ans ${state}" data-opt="${j}"${ans ? ' aria-disabled="true"' : ''} aria-label="${esc(`${tf ? '' : `${key}. `}${o}${sr}`)}">
+          <span class="ans-key" aria-hidden="true">${tf ? (o === 'True' ? ICON.check : ICON.x) : key}</span><span class="ans-text">${esc(o)}</span><span class="ans-mark" aria-hidden="true">${state === 'right' ? ICON.check : state === 'wrong' ? ICON.x : ''}</span></button>`;
+      }).join('')}</div>`;
+    }
+    const fb = ans ? `<div class="fb ${ans.correct ? 'right' : 'wrong'}" role="status">
+        <p class="fb-head"><span class="fb-ic" aria-hidden="true">${ans.correct ? ICON.check : ICON.x}</span>${ans.correct ? 'Correct' : 'Not quite'}</p>
+        ${!ans.correct ? `<p class="fb-answer"><span>Correct answer</span><b>${esc(q.answer)}</b></p>` : ''}
+        ${q.explanation ? `<p class="fb-why">${esc(q.explanation)}</p>` : ''}
+        ${proofHtml(q, byId)}
+        ${q.type === 'short_answer' && !ans.correct && ans.given ? '<button class="fb-link" type="button" data-act="mark-right">My answer was right</button>' : ''}
+      </div>` : '';
+    return `<div class="study quiz${ans ? (ans.correct ? ' is-right' : ' is-wrong') : ''}" data-quiz="${a.id}">
+      <header class="study-top">
+        <div class="study-top-row">${crumb()}<button class="study-exit" type="button" data-act="exit">${ICON.close}<span>End quiz</span></button></div>
+        <div class="study-prog"><span class="study-count">Question ${run.i + 1} of ${total}</span>${done ? `<span class="study-score">${ICON.check}${right} correct</span>` : ''}</div>
+        <div class="study-bar" role="progressbar" aria-label="Quiz progress" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}"><span style="width:${(done / total) * 100}%"></span></div>
+      </header>
+      <section class="study-card q-card">
+        <p class="q-kind">${esc(kindLabel)}${run.kind === 'missed' ? ' · from your missed questions' : ''}</p>
+        <h3 class="q-text" id="qText" tabindex="-1">${esc(q.question)}</h3>
+        ${answers}
+        ${fb}
+      </section>
+      ${ans ? `<div class="study-next"><button class="btn btn-primary study-continue" type="button" data-act="qnext">${run.i === total - 1 ? 'See results' : 'Continue'} <span aria-hidden="true">→</span></button></div>` : ''}
+    </div>`;
+  }
+
+  function quizResultHtml(a, v) {
+    const qs = a.content.questions, r = summary(v.run);
+    const pct = Math.round((r.score / r.total) * 100), perfect = r.score === r.total;
+    const msg = perfect ? 'Every answer right. Nicely done.' : pct >= 80 ? 'Great work — just a little to review.' : pct >= 50 ? 'Good progress — a few to review.' : 'Keep going — you’re getting there.';
+    const C = 2 * Math.PI * 52;
+    const sparks = perfect ? `<div class="res-sparks" aria-hidden="true">${Array.from({ length: 12 }, (_, i) => `<i style="--a:${i * 30}deg;--d:${(i % 4) * 50}ms"></i>`).join('')}</div>` : '';
+    return `<div class="study study-result${perfect ? ' perfect' : ''}">
+      ${crumb()}
+      <section class="study-card result-card" aria-labelledby="resTitle">
+        ${sparks}
+        <p class="res-eyebrow">${v.run.kind === 'missed' ? 'Missed questions done' : 'Quiz complete'}</p>
+        <div class="res-ring" role="img" aria-label="${r.score} of ${r.total} correct, ${pct} percent">
+          <svg viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="resGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#a78bfa"/><stop offset="1" stop-color="#f472b6"/></linearGradient></defs>
+            <circle cx="60" cy="60" r="52" class="res-track"/><circle cx="60" cy="60" r="52" class="res-arc" style="stroke-dasharray:${C.toFixed(1)};--off:${(C * (1 - r.score / r.total)).toFixed(1)}"/></svg>
+          <div class="res-num"><b>${r.score} / ${r.total}</b><span>${pct}%</span></div>
+        </div>
+        <h3 class="res-title" id="resTitle" tabindex="-1">${perfect ? 'Perfect score' : msg}</h3>
+        ${perfect ? `<p class="res-msg">${msg}</p>` : ''}
+        <div class="res-split">
+          <div class="res-chip strong">${ICON.check}<b>${r.strong.length}</b><span>Strong</span></div>
+          <div class="res-chip review">${ICON.loop}<b>${r.missed.length}</b><span>To review</span></div>
+        </div>
+        <div class="res-actions">
+          ${r.missed.length ? '<button class="btn btn-primary" type="button" data-act="review">Review missed questions</button><button class="btn btn-ghost" type="button" data-act="retake-missed">Retake missed questions</button>' : ''}
+          <button class="btn ${r.missed.length ? 'btn-ghost' : 'btn-primary'}" type="button" data-act="retake">Retake full quiz</button>
+        </div>
+        <button class="study-back" type="button" data-act="tools">← Back to Create</button>
+      </section>
+      ${r.missed.length ? `<section class="miss-list" aria-label="Questions to review"><h4 class="miss-head">To review</h4>${r.missed.map((qi) => `<article class="miss-card"><p class="miss-q">${esc(qs[qi].question)}</p><p class="miss-a">${ICON.check}<span>${esc(qs[qi].answer)}</span></p></article>`).join('')}</section>` : ''}
+    </div>`;
+  }
+
+  function quizReviewHtml(a, v, byId) {
+    const qs = a.content.questions, r = summary(v.run);
+    const given = new Map(v.run.items.map((it, k) => [it.qi, v.run.answers[k]?.given]));
+    return `<div class="study study-review">
+      <div class="study-top-row">${crumb()}<button class="study-exit" type="button" data-act="results">← Results</button></div>
+      <h3 class="study-title" id="revTitle" tabindex="-1">Review missed questions</h3>
+      ${r.missed.map((qi, n) => {
+        const q = qs[qi];
+        return `<section class="study-card rev-card" aria-label="Missed question ${n + 1}">
+          <p class="q-kind">Question ${n + 1} of ${r.missed.length}</p>
+          <p class="rev-q">${esc(q.question)}</p>
+          ${given.get(qi) ? `<p class="rev-given">${ICON.x}<span>You answered <b>${esc(given.get(qi))}</b></span></p>` : ''}
+          <p class="fb-answer"><span>Correct answer</span><b>${esc(q.answer)}</b></p>
+          ${q.explanation ? `<p class="fb-why">${esc(q.explanation)}</p>` : ''}
+          ${proofHtml(q, byId)}
+        </section>`;
+      }).join('')}
+      <div class="res-actions"><button class="btn btn-primary" type="button" data-act="retake-missed">Retake missed questions</button><button class="btn btn-ghost" type="button" data-act="retake">Retake full quiz</button></div>
+    </div>`;
+  }
+
+  function renderQuiz() {
+    const kind = 'quiz';
+    const sel = selOf(kind);
+    const { key, a } = current(kind);
+    const busy = api.busy(kind, key) || a?.status === 'generating';
+    const err = api.error(kind, key) || (a?.status === 'failed' ? { message: a.error } : null);
+    const stale = a?.content && api.contentVersion() != null && a.sourceVersion < api.contentVersion();
+    // "Start Quiz" asked for questions that had to be written first: begin as soon as they're here
+    if (ui.autoStart === key && a?.content?.questions?.length && quizView(a).phase === 'setup') { ui.autoStart = null; startRun(a, newRun(a.content.questions)); }
+    const v = a?.content?.questions?.length ? quizView(a) : null;
+    const byId = api.segById();
+    if (v?.phase === 'play') return quizPlayHtml(a, v, byId);
+    if (v?.phase === 'result') return quizResultHtml(a, v);
+    if (v?.phase === 'review') return quizReviewHtml(a, v, byId);
+    return quizSetupHtml({ sel, a, busy, err, stale });
+  }
+  function startRun(a, run) {
+    const v = quizView(a);
+    v.run = run; v.phase = 'play';
+    ui.focus = 'question';
+    mascotSignal('quiz-start');
+  }
+  // reopening a quiz that is still in progress: the mascot goes back to focus mode
+  function resumeSignal(a) { if (a?.content?.questions?.length && quizView(a).phase === 'play') mascotSignal('quiz-start'); }
 
   // ---------- events ----------
   function bind(p) {
@@ -463,6 +602,7 @@ export function createToolsUI(api) {
       if (b.dataset.tool === 'export') return api.openExport();
       ui.tool = b.dataset.tool;
       delete ui.sel[ui.tool]; // start from the latest result's settings
+      if (ui.tool === 'quiz') resumeSignal(current('quiz').a);
       // a reply / email with nothing created yet: ask what it should do straight away
       if (SETUP_DIALOG.has(ui.tool) && !latest(ui.tool)) { api.refresh(); openSetup(ui.tool); return; }
       api.refresh();
@@ -505,41 +645,130 @@ export function createToolsUI(api) {
         else if (e.key === 'ArrowLeft' && d.i > 0) { e.preventDefault(); go(() => { d.i--; d.flipped = false; }); }
       });
     }
+  }
 
-    // quiz
-    const quiz = p.querySelector('.quiz, .quiz-result');
-    if (quiz && a) {
-      const s = quizState(a);
-      const qs = a.content.questions;
-      const record = (given, correct) => { s.answers[s.i] = { given, correct }; mascotSignal(correct ? 'quiz-correct' : 'quiz-wrong'); api.refresh(); requestAnimationFrame(() => api.panel().querySelector('[data-act="qnext"]')?.focus()); };
-      quiz.querySelectorAll('[data-opt]').forEach((b) => b.addEventListener('click', () => {
-        const q = qs[s.i];
-        const given = q.options[Number(b.dataset.opt)];
-        record(given, given === q.answer);
-      }));
-      quiz.querySelector('[data-act="sa"]')?.addEventListener('submit', (e) => {
+  // ---------- Practice Quiz: events ----------
+  function bindQuiz(p) {
+    const kind = 'quiz';
+    const info = TOOL_INFO[kind];
+    const settings = { ...selOf(kind) };
+    const { key, a } = current(kind);
+    const qs = a?.content?.questions || [];
+    const v = qs.length ? quizView(a) : null;
+    const rerender = (focus) => { ui.focus = focus; api.refresh(); };
+    const on = (sel, fn) => p.querySelectorAll(sel).forEach((b) => b.addEventListener('click', fn));
+
+    // back to Create: a finished quiz reopens on its setup (with the last score); one in progress resumes
+    on('[data-act="tools"]', () => {
+      if (v?.phase === 'play') mascotSignal('quiz-end');
+      if (v && v.phase !== 'play') { v.phase = 'setup'; v.run = null; }
+      ui.tool = null; api.refresh();
+    });
+    // setup choices: radio groups (click, or arrow keys inside the group)
+    on('[data-set]', (e) => { const b = e.currentTarget; selOf(kind)[b.dataset.set] = b.dataset.val; rerender(`set:${b.dataset.set}`); });
+    p.querySelectorAll('.pick').forEach((g) => g.addEventListener('keydown', (e) => {
+      const opts = [...g.querySelectorAll('[role="radio"]')];
+      const i = opts.indexOf(document.activeElement);
+      const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (i < 0 || !d) return;
+      e.preventDefault();
+      const b = opts[(i + d + opts.length) % opts.length];
+      selOf(kind)[b.dataset.set] = b.dataset.val;
+      rerender(`set:${b.dataset.set}`);
+    }));
+    on('[data-act="start"]', () => {
+      if (qs.length) { startRun(a, newRun(qs)); api.refresh(); p.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+      ui.autoStart = key;
+      api.generate(kind, settings, false);
+    });
+    on('[data-act="regen"]', () => api.generate(kind, settings, true));
+    on('[data-act="regen-confirm"]', async () => {
+      if (await api.confirm('Write new questions?', 'This replaces this quiz with newly generated questions from the recording.', 'Write new questions')) api.generate(kind, settings, true);
+    });
+    on('[data-act="copy"]', () => api.copy(blocksToText(artifactBlocks(kind, a.content, api.timeOf)), info.label));
+    on('[data-act="export"]', () => api.openExport(`tool:${kind}:${key}`));
+    on('[data-act="delete"]', async () => {
+      if (await api.confirm(`Delete ${info.label}?`, 'Only this quiz is removed. The recording, its transcript and everything else stay.', 'Delete', true)) api.remove(a);
+    });
+    if (!v) return focusAfter(p);
+
+    const run = v.run;
+    on('[data-act="exit"]', () => { v.phase = 'setup'; v.run = null; mascotSignal('quiz-end'); rerender('setup'); });
+    on('[data-act="results"]', () => { v.phase = 'result'; rerender('result'); });
+    on('[data-act="review"]', () => { v.phase = 'review'; rerender('review'); });
+    on('[data-act="retake"]', () => { startRun(a, newRun(qs, { shuffle: true })); api.refresh(); });
+    on('[data-act="retake-missed"]', () => { startRun(a, newRun(qs, { only: summary(run).missed, shuffle: true })); api.refresh(); });
+
+    if (v.phase === 'play') {
+      const choose = (given) => {
+        if (run.answers[run.i]) return;
+        const ok = gradeAnswer(run, qs, given);
+        mascotSignal(ok ? 'quiz-correct' : 'quiz-wrong');
+        rerender('continue');
+      };
+      const next = () => {
+        if (!run.answers[run.i]) return;
+        if (!advance(run)) { mascotSignal('quiz-next'); rerender('question'); return; }
+        v.phase = 'result';
+        const r = summary(run);
+        if (run.kind === 'full') {
+          const prev = a.progress || {};
+          api.saveProgress(a, { last_score: r.score, total: r.total, attempts: (prev.attempts || 0) + 1, completed_at: new Date().toISOString(), missed: r.missed });
+        }
+        mascotSignal('quiz-done', { score: r.score, total: r.total });
+        rerender('result');
+      };
+      p.querySelectorAll('[data-opt]').forEach((b) => b.addEventListener('click', () => choose(qs[currentItem(run).qi].options[Number(b.dataset.opt)])));
+      p.querySelector('[data-act="sa"]')?.addEventListener('submit', (e) => {
         e.preventDefault();
         const given = e.target.querySelector('input').value.trim();
-        if (!given) return;
-        record(given, shortAnswerCorrect(given, qs[s.i]));
+        if (given) choose(given);
       });
-      quiz.querySelector('[data-act="mark-right"]')?.addEventListener('click', () => { s.answers[s.i].correct = true; api.refresh(); });
-      quiz.querySelector('[data-act="qnext"]')?.addEventListener('click', () => {
-        if (s.i < qs.length - 1) { s.i++; api.refresh(); requestAnimationFrame(() => api.panel().querySelector('.quiz-opt, .quiz-sa input')?.focus()); return; }
-        s.done = true;
-        const score = s.answers.filter((x) => x?.correct).length;
-        const prev = a.progress || {};
-        api.saveProgress(a, { last_score: score, total: qs.length, attempts: (prev.attempts || 0) + 1, completed_at: new Date().toISOString() });
-        mascotSignal('quiz-done', { score, total: qs.length });
-        api.refresh();
-      });
-      quiz.querySelector('[data-act="retake"]')?.addEventListener('click', () => { Object.assign(s, { i: 0, answers: [], done: false }); api.refresh(); });
-      p.querySelector('.quiz-sa input')?.focus();
+      on('[data-act="mark-right"]', () => { overrideCorrect(run); rerender('continue'); });
+      on('[data-act="qnext"]', next);
+      // keys: A–D (or 1–4) pick a choice, T / F for true or false, Enter continues
+      ui.quizKey = (e) => {
+        if (e.target.closest('input, textarea, select, summary') || e.ctrlKey || e.metaKey || e.altKey) return;
+        const q = qs[currentItem(run).qi];
+        if (run.answers[run.i]) {
+          if (e.key === 'Enter' && !e.target.closest('button')) { e.preventDefault(); next(); }
+          return;
+        }
+        const k = e.key.toLowerCase();
+        let j = -1;
+        if (q.type === 'true_false') j = k === 't' ? q.options.indexOf('True') : k === 'f' ? q.options.indexOf('False') : -1;
+        else if (q.type === 'multiple_choice') {
+          const pos = /^[a-e]$/.test(k) ? k.charCodeAt(0) - 97 : /^[1-5]$/.test(k) ? Number(k) - 1 : -1;
+          j = pos >= 0 ? currentItem(run).order[pos] ?? -1 : -1;
+        }
+        if (j >= 0) { e.preventDefault(); choose(q.options[j]); }
+      };
     }
+    focusAfter(p);
+  }
+  // after a re-render, put focus where the learner continues (and never steal it otherwise)
+  function focusAfter(p) {
+    const f = ui.focus; ui.focus = null;
+    if (!f) return;
+    const el = f === 'question' ? (p.querySelector('.sa-input') || p.querySelector('#qText'))
+      : f === 'continue' ? p.querySelector('[data-act="qnext"]')
+        : f === 'result' ? p.querySelector('#resTitle')
+          : f === 'review' ? p.querySelector('#revTitle')
+            : f === 'setup' ? p.querySelector('[data-act="start"]')
+              : f.startsWith('set:') ? p.querySelector(`[data-set="${f.slice(4)}"][aria-checked="true"]`) : null;
+    el?.focus({ preventScroll: f.startsWith('set:') || f === 'continue' });
+    // the answer's feedback is the next thing to read: bring it (and the Continue button) into view
+    if (f === 'continue') p.querySelector('.fb')?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
   return {
     render(panel) {
+      if (!panel.dataset.quizKeys) {             // one keyboard handler per panel; each screen sets ui.quizKey
+        panel.dataset.quizKeys = '1';
+        panel.addEventListener('keydown', (e) => ui.quizKey?.(e));
+      }
+      ui.quizKey = null;
+      if (ui.tool === 'quiz') { panel.innerHTML = renderQuiz(); bindQuiz(panel); return; }
       panel.innerHTML = ui.tool ? renderTool() : renderList();
       bind(panel);
     },

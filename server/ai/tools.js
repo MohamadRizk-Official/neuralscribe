@@ -4,7 +4,7 @@
 // `quote` / `evidence` fields checked word for word). Validators add the tool's own rules and count what
 // they had to drop, so the usage log shows how often the model needed correcting.
 import { str, nullableStr, refs, evidence, obj, list, point, decision, actionItem, dateItem, quote, DECISION_RULE, ACTION_RULE } from './prompts.js';
-import { normalizeToolSettings } from '../../src/lib/tool-settings.js';
+import { normalizeToolSettings, quizQuestionCount } from '../../src/lib/tool-settings.js';
 
 const int = (description) => ({ type: 'integer', ...(description && { description }) });
 const topic = obj({ title: str('2–6 word topic title'), summary: str('One or two sentences, as said'), start_ref: int('Line number where this topic begins') });
@@ -41,10 +41,7 @@ export function cardCount(minutes, size) {
   const base = minutes < 10 ? 8 : minutes < 40 ? 15 : 25;
   return size === 'fewer' ? Math.max(5, Math.round(base / 2)) : size === 'more' ? Math.min(40, Math.round(base * 1.6)) : base;
 }
-export function questionCount(minutes, size) {
-  const base = minutes < 5 ? 5 : 10;
-  return size === 'fewer' ? Math.max(3, Math.round(base / 2)) : size === 'more' ? (minutes < 5 ? 8 : 15) : base;
-}
+export const questionCount = quizQuestionCount;   // shared with the quiz setup screen
 
 // ---------- shared validation helpers ----------
 function fixStarts(list, segments) {

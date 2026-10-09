@@ -64,7 +64,8 @@ export function mountMascot({ page = 'other' } = {}) {
   const vw = () => document.documentElement.clientWidth || innerWidth;
   const FLOOR = () => innerHeight - (touch ? 6 : 8);
   const standY = () => FLOOR() - DIM.foot * k;
-  const peekY = () => innerHeight + 0.08 * k;              // only the gem, the top of the body and the speaker's rim show
+  let away = false;                                         // phones during a quiz: fully below the edge
+  const peekY = () => innerHeight + (away ? 2.4 : 0.08) * k; // only the gem, the top of the body and the speaker's rim show
   const minX = () => 1.3 * k + 4;
   const maxX = () => vw() - 1.3 * k - 4;
   const clampX = (v) => clamp(v, minX(), maxX());
@@ -203,6 +204,7 @@ export function mountMascot({ page = 'other' } = {}) {
     anim.setBase(moodBase(), {}, 0.35);
   }
   async function rise(id) {
+    away = false;
     if (peekK < 0.02 && !peek) return;
     peek = false;
     await until(() => peekK < 0.03, id);
@@ -847,15 +849,32 @@ export function mountMascot({ page = 'other' } = {}) {
       afterAction(4000);
     },
     'ask-error': () => { if (mood === 'thinking') toIdle(); E.gem('', 1); E.flash('error', 1600); run((id) => act(CLIPS.wobble, id)); afterAction(4000); },
+    // Practice Quiz: the mascot is a quiet study buddy. Focus mode is automatic while a question is on screen
+    // (busy() sees the .quiz), so it never roams; it only watches, listens and reacts to answers.
+    'quiz-start': () => {
+      E.flash('listening', 1600);
+      if (touch) { cancelTask(); away = true; peek = true; return; }   // small screens: out of the way of the answers
+      run(async (id) => {
+        await ready(id);
+        const q = document.querySelector('.study.quiz .q-card')?.getBoundingClientRect();
+        if (q) lookAt(q.left + q.width / 2, q.top + q.height / 3, 3);
+      });
+    },
+    'quiz-next': () => { E.flash('listening', 900); },
+    'quiz-end': () => { E.flash('idle', 1); if (away) { away = false; peek = readingMode; } },
     'quiz-correct': () => { E.flash('happy', 900); E.pulse(1); run((id) => act(Math.random() < 0.5 ? CLIPS.nod : CLIPS.hop, id)); },
     'quiz-wrong': () => { E.flash('curious', 900); run((id) => act(CLIPS.wobble, id)); },
     'quiz-done': ({ score = 0, total = 1 }) => {
       const k2 = total ? score / total : 0;
       run(async (id) => {
         await ready(id);
-        if (k2 >= 0.8) { E.flash('success', 1600); E.gem('success', 1400); E.pulse(3); fx('sparkles'); await act(CLIPS.celebrate, id); }
-        else if (k2 >= 0.5) { E.flash('happy', 1200); E.pulse(2); await act(CLIPS.cheer, id); }
-        else { E.flash('happy', 1200); await act(CLIPS.nod, id); }
+        if (k2 >= 1) {            // perfect: the bigger celebration
+          E.flash('success', 2400); E.gem('success', 2200); E.pulse(3); fx('sparkles');
+          setTimeout(() => { fx('sparkles'); E.pulse(3); }, 700);
+          await act(CLIPS.celebrate, id);
+          await act(CLIPS.cheer, id);
+        } else if (k2 >= 0.6) { E.flash('success', 1500); E.gem('success', 1200); E.pulse(2); await act(CLIPS.cheer, id); }
+        else { E.flash('happy', 1200); E.pulse(1); await act(CLIPS.hop, id); }
       });
       afterAction(5000);
     },

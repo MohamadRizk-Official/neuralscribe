@@ -644,6 +644,8 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     remove: removeArtifact,
     saveProgress,
     chips, segById, loading, errorBox, timeOf, privacyLine,
+    canPlay: () => ctx.playbackTime?.() != null,
+    duration: () => ctx.duration?.() || 0,
     makeDialog,
     showTab,
     openExport: (pre) => openExport(pre),

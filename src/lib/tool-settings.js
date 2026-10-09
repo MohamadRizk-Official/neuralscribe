@@ -7,15 +7,23 @@ export const TOOL_SETTINGS = {
   flashcards: {
     size: { label: 'How many', def: 'standard', options: { fewer: 'Fewer', standard: 'Recommended', more: 'More' } },
   },
+  // the quiz setup shows Length as the actual number of questions (quizQuestionCount below)
   quiz: {
-    size: { label: 'Questions', def: 'standard', options: { fewer: 'Fewer', standard: 'Recommended', more: 'More' } },
-    difficulty: { label: 'Difficulty', def: 'standard', options: { standard: 'Standard', harder: 'Challenging' } },
-    types: { label: 'Question types', def: 'mixed', options: { mixed: 'Mixed', multiple_choice: 'Multiple choice', true_false: 'True / false' } },
+    size: { label: 'Length', def: 'standard', options: { fewer: 'Short', standard: 'Standard length', more: 'Long' } },
+    difficulty: { label: 'Level', def: 'standard', options: { standard: 'Standard', harder: 'Challenge' } },
+    types: { label: 'Format', def: 'mixed', options: { mixed: 'Mixed', multiple_choice: 'Choice', true_false: 'True / False' } },
   },
   study_guide: {
     focus: { label: 'Focus', def: 'balanced', options: { balanced: 'Balanced', exam: 'Exam focused', concepts: 'Key concepts', detailed: 'Detailed' } },
   },
 };
+// How many questions a quiz asks for (the model may return fewer when the recording is thin): 5 / 10 / 15,
+// or 3 / 5 / 8 for recordings under 5 minutes. Shared so the quiz setup can show the real numbers.
+export function quizQuestionCount(minutes, size) {
+  const base = minutes < 5 ? 5 : 10;
+  return size === 'fewer' ? Math.max(3, Math.round(base / 2)) : size === 'more' ? (minutes < 5 ? 8 : 15) : base;
+}
+
 // Drafts: the user writes what the draft should be about (required); the recording supplies the facts.
 // Earlier versions offered preset intents ("Confirm", "Decline"…); those were too vague to act on.
 // Stored drafts may still carry an old `intent` / `goal` setting; it is ignored.
