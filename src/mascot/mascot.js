@@ -755,15 +755,23 @@ export function mountMascot({ page = 'other' } = {}) {
       await wait(rand(3, 6), id);
       if (quiet() && Math.random() < 0.6) continue;
       const p = document.getElementById('progressPanel');
-      const a = pick([['tap', 28], ['look', 30], ['listen', 22], ['nod', 12], ['sit', clock - workSince > 25 ? 8 : 0]]);
+      // what it does follows the stage: watches the bar while the model downloads, listens while the
+      // audio is checked and speakers are found, pulses its speaker while words come in
+      const setup = workStage === 'setup', listening = workStage === 'analyze' || workStage === 'speakers', writing = workStage === 'run';
+      const a = pick([['tap', setup ? 10 : 28], ['look', setup ? 60 : 30], ['listen', listening ? 55 : 22], ['pulse', writing ? 40 : 0], ['nod', 12], ['sit', clock - workSince > 25 ? 8 : 0]]);
       if (a === 'tap') await act(CLIPS.footTap, id);
-      else if (a === 'look' && p && p.offsetParent !== null) { const r = p.getBoundingClientRect(); lookAt(r.left + r.width / 2, r.top + r.height / 2, 2.5); }
+      else if (a === 'pulse') E.pulse(2);
+      else if (a === 'look' && p && p.offsetParent !== null) {
+        const bar = setup ? document.getElementById('pctBar') : null;
+        const r = (bar && bar.offsetParent !== null ? bar : p).getBoundingClientRect();
+        lookAt(bar ? r.right : r.left + r.width / 2, r.top + r.height / 2, 2.5);
+      }
       else if (a === 'listen') E.flash('listening', 2000);
       else if (a === 'nod') await act(CLIPS.nod, id);
       else if (a === 'sit') { anim.setBase('sit', {}, 0.7); await wait(rand(5, 9), id); const q = act(CLIPS.pressUp, id); anim.setBase('working', {}, 0.01); await q; }
     }
   }
-  let workSince = 0;
+  let workSince = 0, workStage = '';
 
   // ---------- cursor: the speaker follows it; sometimes a small reaction ----------
   let hovering = false, hoverAt = 0, nearSince = 0, lastMove = null;
@@ -974,6 +982,7 @@ export function mountMascot({ page = 'other' } = {}) {
       setMood('excited');
       run(async (id) => { await ready(id); E.flash('happy', 1100); E.pulse(3); E.gem('flash', 700); await act(CLIPS.hop, id); });
     },
+    stage: ({ stage }) => { workStage = stage || ''; },
     working: () => {
       setMood('working'); workSince = clock;
       run((id) => workLoop(id, true));

@@ -15,6 +15,7 @@ const els = {
   modelSelect: $('modelSelect'), speakersSelect: $('speakersSelect'),
   progressPanel: $('progressPanel'), fileName: $('fileName'), fileSub: $('fileSub'), cancelBtn: $('cancelBtn'),
   wave: $('wave'), waveSweep: $('waveSweep'), waveWrap: $('waveWrap'), sweepHead: $('sweepHead'), steps: $('steps'), stageLabel: $('stageLabel'), statusLine: $('statusLine'),
+  stageSub: $('stageSub'), setupNote: $('setupNote'), dlDetails: $('dlDetails'), loadStepLabel: $('loadStepLabel'), nextSteps: $('nextSteps'),
   pctNum: $('pctNum'), etaText: $('etaText'), pctBar: $('pctBar'), downloads: $('downloads'),
   resultsPanel: $('resultsPanel'), resTitle: $('resTitle'), resMeta: $('resMeta'),
   searchInput: $('searchInput'), searchCount: $('searchCount'),
@@ -36,10 +37,23 @@ const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185'
 const UNKNOWN = 'Unknown';
 const UNKNOWN_COLOR = '#8a93b9';
 const STEPS = ['decode', 'analyze', 'load', 'speakers', 'run', 'review', 'done'];
+// what the person sees for each stage: a short name and one plain line about what is happening
 const STAGE_LABEL = {
-  decode: 'Preparing audio', analyze: 'Analyzing recording', load: 'Loading AI models', speakers: 'Finding who is speaking',
-  run: 'Transcribing', review: 'Re-checking difficult parts', done: 'Finalizing transcript',
+  decode: ['Preparing', 'Getting your recording ready'],
+  analyze: ['Listening', 'Checking the audio quality'],
+  load: ['Getting ready', 'Loading the speech model from this browser'],
+  setup: ['First-time setup', "Downloading SparkScribe's speech model"],
+  speakers: ['Listening', 'Finding who is speaking'],
+  run: ['Transcribing', 'Turning speech into text'],
+  review: ['Double-checking', 'Re-listening to the unclear parts'],
+  done: ['Finishing', 'Preparing your results'],
 };
+// The speech model is downloaded once per mode and device and then cached by the browser. Remember which
+// ones already finished a run here, so the first run can say "one-time setup" and later runs don't.
+const CACHED_KEY = 'sparkscribe.modelsCached';
+const modelKey = () => `${els.modelSelect.value || modeValue()}|${deviceInfo.dev || '?'}`;
+function cachedModels() { try { return new Set(JSON.parse(localStorage.getItem(CACHED_KEY) || '[]')); } catch { return new Set(); } }
+function markCached(key) { try { const s = cachedModels(); s.add(key); localStorage.setItem(CACHED_KEY, JSON.stringify([...s])); } catch {} }
 // share of the overall progress bar each stage covers
 const STAGE_SPAN = { decode: [0, 6], analyze: [6, 8], load: [8, 18], speakers: [18, 32], run: [32, 92], review: [92, 99], done: [100, 100] };
 // one-time model downloads shown to the user (MB, rounded): Whisper + speaker models
@@ -103,7 +117,7 @@ function updateModeNote() {
   const parts = [];
   if (custom) parts.push('Using the model chosen in Advanced settings.');
   else if (mode === 'best' && dev !== 'webgpu') parts.push('Without a GPU, Best Accuracy uses a lighter model so it finishes in reasonable time.');
-  if (!custom) parts.push(`First use downloads about ${DOWNLOAD_MB[mode][dev === 'webgpu' ? 'webgpu' : 'wasm']} MB of AI models once; after that they load from your browser's cache.`);
+  if (!custom && !cachedModels().has(modelKey())) parts.push(`Your first recording sets up the speech model once (about ${DOWNLOAD_MB[mode][dev === 'webgpu' ? 'webgpu' : 'wasm']} MB). After that, recordings start right away.`);
   els.modeNote.textContent = parts.join(' ');
 }
 [els.modelSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
@@ -279,10 +293,13 @@ function setStage(stage) {
     li.classList.toggle('done', i < idx || stage === 'done');
     li.classList.toggle('active', i === idx && stage !== 'done');
   });
-  els.stageLabel.textContent = STAGE_LABEL[stage] || '';
+  const [label, sub] = STAGE_LABEL[stage === 'load' && run.firstRun ? 'setup' : stage] || ['', ''];
+  els.stageLabel.textContent = label;
+  els.stageSub.textContent = stage === 'speakers' && run.diarize === false ? 'Finding where people speak' : sub;
   els.etaText.textContent = '';
-  if (stage === 'load') els.statusLine.textContent = 'First run downloads the AI models once; after that they load from cache.';
-  if (stage === 'speakers' && run.diarize === false) els.stageLabel.textContent = 'Detecting speech';
+  els.statusLine.textContent = '';
+  els.setupNote.classList.toggle('hidden', !(stage === 'load' && run.firstRun));
+  mascotSignal('stage', { stage: stage === 'load' && run.firstRun ? 'setup' : stage });
   renderPct();
 }
 function setStagePct(p) {
@@ -374,6 +391,10 @@ function onDownload(p) {
   let l = 0, t = 0;
   for (const d of downloads.values()) { l += d.loaded; t += d.total; }
   if (t) setStagePct((l / t) * 100);
+  if (run?.firstRun && run.stage === 'load' && t) {
+    els.dlDetails.classList.remove('hidden');
+    els.statusLine.textContent = `${Math.round(l / 1e6)} of ${Math.round(t / 1e6)} MB`;
+  }
 }
 
 async function start(file) {
@@ -384,6 +405,10 @@ async function start(file) {
   setTimeout(() => { if (currentFile === file && run) mascotSignal('working'); }, 900);
   downloads.clear();
   els.downloads.innerHTML = '';
+  els.dlDetails.classList.add('hidden');
+  els.dlDetails.open = false;
+  els.setupNote.classList.add('hidden');
+  els.nextSteps.classList.add('hidden');
   els.statusLine.textContent = '';
   els.fileName.textContent = file.name;
   els.fileSub.textContent = `${(file.size / 1e6).toFixed(1)} MB · ${file.type || 'unknown type'}`;
@@ -393,7 +418,9 @@ async function start(file) {
   els.steps.querySelector('[data-step="review"]').classList.add('hidden');
   els.qualityChip.className = 'quality hidden';
   layoutSteps();
-  run = { stage: 'decode', stageStart: performance.now(), stagePct: 0, overall: 0, t0: performance.now(), diarize };
+  const firstRun = !cachedModels().has(modelKey());
+  els.loadStepLabel.textContent = firstRun ? 'Set up' : 'Get ready';
+  run = { stage: 'decode', stageStart: performance.now(), stagePct: 0, overall: 0, t0: performance.now(), diarize, firstRun, modelKey: modelKey() };
   show(els.progressPanel);
   setStage('decode');
   drawWave(null);
@@ -458,6 +485,7 @@ function drawWave(pk) {
 // ---------- results ----------
 function onComplete({ lines, language, ms, device, stats }) {
   setStage('done');
+  if (run?.modelKey) markCached(run.modelKey);
   const speakers = new Map();
   let n = 0;
   for (const l of lines) {
@@ -481,6 +509,7 @@ function onComplete({ lines, language, ms, device, stats }) {
   setTimeout(() => {
     show(els.resultsPanel);
     renderAll();
+    renderNextSteps();
     autoSave(); // in addition to showing the result; a failure never touches what's on screen
     setTimeout(() => mascotSignal('results-shown'), 700);
   }, 900);
@@ -488,6 +517,11 @@ function onComplete({ lines, language, ms, device, stats }) {
 
 function renderAll() {
   pruneSpeakers();
+  // One voice: the speaker timeline and sidebar add nothing, so they wait behind "Speaker details".
+  // Two or more: the full speaker tools, as before.
+  const solo = realSpeakers().length <= 1;
+  els.resultsPanel.classList.toggle('solo', solo);
+  if (!solo) els.resultsPanel.classList.remove('solo-open');
   renderMeta();
   renderSpeakers();
   renderTranscript();
@@ -521,8 +555,14 @@ function renderMeta() {
     + '<span class="type-slot" id="typeSlot"></span>'
     + (state.quality ? `<button type="button" class="meta-btn q-${state.quality.rating}" data-act="quality">Audio <b>${QUALITY_LABEL[state.quality.rating]}</b></button>` : '')
     + (unsure ? `<button type="button" class="meta-btn unsure" data-act="unsure">${unsure} part${unsure === 1 ? '' : 's'} to double-check</button>` : '')
+    + (realSpeakers().length <= 1 ? `<button type="button" class="meta-btn" data-act="speaker-details" aria-expanded="${els.resultsPanel.classList.contains('solo-open')}">Speaker details</button>` : '')
     + `<button type="button" class="meta-btn details-btn" data-act="details" aria-expanded="${detailsOpen}" aria-controls="resDetails">Details</button>`
     + `<div class="meta-details" id="resDetails"${detailsOpen ? '' : ' hidden'}>${details.map(chip).join('')}</div>`;
+  els.resMeta.querySelector('[data-act="speaker-details"]')?.addEventListener('click', (e) => {
+    const open = els.resultsPanel.classList.toggle('solo-open');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+    if (open) requestAnimationFrame(() => { drawTimeline(); updatePlayhead(); });
+  });
   els.resMeta.querySelector('[data-act="details"]').addEventListener('click', (e) => {
     detailsOpen = !detailsOpen;
     $('resDetails').hidden = !detailsOpen;
@@ -1081,9 +1121,45 @@ const insights = mountInsights({
 });
 
 // Park the transcript in this browser, sign in, then it's saved automatically on return.
-function signInToSave() {
+function signInToSave(mode) {
   if (!stashPending(savePayload())) return toast("Couldn't hold the transcript for sign-in. Export it first.");
-  location.href = `/auth?next=${encodeURIComponent('/?save=pending')}`;
+  location.href = `/auth?${mode === 'signup' ? 'mode=signup&' : ''}next=${encodeURIComponent('/?save=pending')}`;
+}
+// The header's own "Sign in" link would leave the page and lose an unsaved transcript: park it first,
+// exactly like the save bar does.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('.acct-signin');
+  if (!a || !state?.lines?.length || save.id || els.resultsPanel.classList.contains('hidden')) return;
+  e.preventDefault();
+  signInToSave();
+}, true);
+
+// ---------- first transcript: show that the transcript is step one ----------
+const NEXT_KEY = 'sparkscribe.nextSteps.done';
+function renderNextSteps() {
+  let done = false;
+  try { done = localStorage.getItem(NEXT_KEY) === '1'; } catch {}
+  const box = els.nextSteps;
+  if (done || !state?.lines?.length) return box.classList.add('hidden');
+  let work = false;
+  try { work = localStorage.getItem('sparkscribe.audience') === 'work'; } catch {}
+  const make = work ? 'Recap · Action plan · Follow-up email' : 'Quiz · Flashcards · Study guide';
+  const step = (tab, cls, icon, title, sub) => `<button type="button" class="ns-step ${cls}" data-tab="${tab}"><span class="ns-ic" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><span><b>${title}</b><span>${sub}</span></span><span class="ns-go" aria-hidden="true">→</span></button>`;
+  box.innerHTML = `<div class="ns-head"><h3 id="nextStepsTitle">Your recording is ready</h3><p>The transcript is step one. Here is what SparkScribe can do with it.</p></div>
+    <div class="ns-steps">
+      ${step('summary', 'c-cyan', '<rect x="3.5" y="4" width="17" height="16" rx="3"/><path d="M7.5 9h9M7.5 12.5h9M7.5 16h5"/>', 'Get the key points', 'Summary')}
+      ${step('create', 'c-violet', '<path d="m12 3 2.2 5.3L20 9l-4.4 3.8L17 18.5 12 15.6 7 18.5l1.4-5.7L4 9l5.8-.7Z"/>', work ? 'Turn it into next steps' : 'Turn it into study material', make)}
+      ${step('ask', 'c-pink', '<path d="M4 5h16v11H9l-5 4z"/><path d="M9 10h6"/>', 'Ask anything about it', 'Ask')}
+    </div>
+    <button type="button" class="ns-close" aria-label="Hide these suggestions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
+  box.classList.remove('hidden');
+  const finish = () => { try { localStorage.setItem(NEXT_KEY, '1'); } catch {} box.classList.add('hidden'); };
+  box.querySelectorAll('.ns-step').forEach((b) => b.addEventListener('click', () => {
+    finish();
+    insights.showTab(b.dataset.tab);
+    $('resTabs')?.scrollIntoView({ block: 'nearest', behavior: calmMotion.matches ? 'auto' : 'smooth' });
+  }));
+  box.querySelector('.ns-close').addEventListener('click', finish);
 }
 
 if (isConfigured) {
@@ -1163,7 +1239,9 @@ function renderSaveBar() {
   const bar = els.saveBar || (els.saveBar = document.getElementById('saveBar'));
   if (!bar || !isConfigured || !state?.lines) return bar?.classList.add('hidden');
   const views = {
-    'signed-out': ['muted', CLOUD, 'Not saved. Sign in to keep this transcript in your library.', '<button class="btn btn-ghost btn-sm" type="button" data-act="signin">Sign in to save</button>'],
+    'signed-out': ['invite', CLOUD,
+      '<b class="save-head">Keep this recording and unlock the AI tools</b><span class="save-chips"><span>Save to Library</span><span>Summary</span><span>Notes</span><span>Ask</span><span>Quiz</span><span>Flashcards</span></span><span class="save-note">Free account · your audio stays on this device</span>',
+      '<span class="save-btns"><button class="btn btn-primary btn-sm" type="button" data-act="signup">Create free account</button><button class="btn btn-ghost btn-sm" type="button" data-act="signin">Sign in</button></span>'],
     saving: ['busy', CLOUD, 'Saving to My Library…', ''],
     pending: ['busy', CLOUD, 'Saving your changes…', ''],
     syncing: ['busy', CLOUD, 'Saving your changes…', ''],
@@ -1177,7 +1255,8 @@ function renderSaveBar() {
   bar.className = `save-bar ${kind}`;
   bar.innerHTML = `<span class="save-icon">${icon}</span><span class="save-text">${text}</span>${action}`;
   bar.querySelector('[data-act="retry"]')?.addEventListener('click', doSave);
-  bar.querySelector('[data-act="signin"]')?.addEventListener('click', signInToSave);
+  bar.querySelector('[data-act="signin"]')?.addEventListener('click', () => signInToSave());
+  bar.querySelector('[data-act="signup"]')?.addEventListener('click', () => signInToSave('signup'));
   bar.querySelector('a[href^="/transcript"]')?.addEventListener('click', mascotTravel); // the mascot follows to the saved copy
 }
 

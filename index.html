@@ -274,19 +274,20 @@
         </div>
 
         <ol class="stepper" id="steps">
-          <li data-step="decode"><span class="st-dot"></span><span class="st-label">Prepare audio</span></li>
-          <li data-step="analyze"><span class="st-dot"></span><span class="st-label">Analyze</span></li>
-          <li data-step="load"><span class="st-dot"></span><span class="st-label">Load AI</span></li>
+          <li data-step="decode"><span class="st-dot"></span><span class="st-label">Prepare</span></li>
+          <li data-step="analyze"><span class="st-dot"></span><span class="st-label">Check audio</span></li>
+          <li data-step="load"><span class="st-dot"></span><span class="st-label" id="loadStepLabel">Get ready</span></li>
           <li data-step="speakers"><span class="st-dot"></span><span class="st-label" id="speakersStepLabel">Find speakers</span></li>
           <li data-step="run"><span class="st-dot"></span><span class="st-label">Transcribe</span></li>
           <li data-step="review" class="hidden"><span class="st-dot"></span><span class="st-label">Re-check</span></li>
-          <li data-step="done"><span class="st-dot"></span><span class="st-label">Done</span></li>
+          <li data-step="done"><span class="st-dot"></span><span class="st-label">Finish</span></li>
         </ol>
 
         <div class="readout">
           <div>
-            <div class="readout-stage" id="stageLabel">Reading audio</div>
-            <div class="status mono" id="statusLine"></div>
+            <div class="readout-stage" id="stageLabel">Preparing</div>
+            <div class="readout-sub" id="stageSub">Getting your recording ready</div>
+            <div class="status" id="statusLine"></div>
           </div>
           <div class="readout-num">
             <span class="pct mono" id="pctNum">0<small>%</small></span>
@@ -295,7 +296,11 @@
         </div>
         <div class="bar"><i id="pctBar"></i></div>
         <button class="quality hidden" id="qualityChip" type="button"></button>
-        <div class="downloads" id="downloads"></div>
+        <div class="setup-note hidden" id="setupNote">
+          <span class="setup-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg></span>
+          <div><b>One time only.</b> The speech model is saved in this browser, so your next recordings start much faster. Your audio still never leaves your device.</div>
+        </div>
+        <details class="dl-details hidden" id="dlDetails"><summary>Details</summary><div class="downloads" id="downloads"></div></details>
       </section>
 
       <!-- ===== RESULTS ===== -->
@@ -319,6 +324,8 @@
           </div>
           <div class="save-bar hidden" id="saveBar" aria-live="polite"></div>
         </div>
+
+        <div class="next-steps hidden" id="nextSteps" role="region" aria-labelledby="nextStepsTitle"></div>
 
         <nav id="resTabs" aria-label="Result views"></nav>
 
