@@ -1,7 +1,8 @@
 // The canonical SparkScribe mascot as a real 3D character (Three.js). Every animation uses this one model.
 //
 // Built from the reference art: a round faceted crystal body (blue / cyan / violet / pink), a large speaker
-// in the middle of the body that acts as its eye, a faceted gem on a metal collar on top, pink "blush" bars
+// in the middle of the body that acts as its eye, a faceted crystal lightning bolt (the SparkScribe spark) on a
+// metal collar on top, pink "blush" bars
 // beside the speaker, two small faceted arms and two faceted feet. No eyes, no face.
 //
 // Units: the body radius is 1. The origin is the body's center (its center of mass).
@@ -16,7 +17,7 @@
 // Geometry is deterministic (seeded), so the character is identical on every page and every load.
 import {
   Group, Mesh, IcosahedronGeometry, LatheGeometry, TorusGeometry, CylinderGeometry, SphereGeometry, CapsuleGeometry,
-  PlaneGeometry, MeshStandardMaterial, MeshBasicMaterial, Color, Vector2, Vector3, CanvasTexture, AdditiveBlending,
+  PlaneGeometry, Shape, ExtrudeGeometry, MeshStandardMaterial, MeshBasicMaterial, Color, Vector2, Vector3, CanvasTexture, AdditiveBlending,
   DoubleSide, BufferAttribute, SRGBColorSpace,
 } from 'three';
 import { DIM, FOOT_Y } from './motion.js';
@@ -49,12 +50,6 @@ function crystalPaint(n, rnd, out) {
   else if (r < 0.17) out.lerp(C.violet, 0.4);
   else if (r > 0.9) out.lerp(C.cyan, 0.35);
   out.multiplyScalar(0.88 + rnd() * 0.24);
-}
-function gemPaint(n, rnd, out) {
-  const hi = clamp(n.y * 0.5 - n.x * 0.55 + n.z * 0.3, 0, 1);
-  out.copy(C.violet).lerp(C.cyan, hi);
-  if (n.x > 0.35 && n.y < 0.6) out.lerp(C.pink, 0.45);
-  out.multiplyScalar(0.92 + rnd() * 0.2);
 }
 
 // flat per-face colors (geometry must be non-indexed)
@@ -101,6 +96,34 @@ function carveSocket(g, cx, cy, r) {
   g.setAttribute('color', new BufferAttribute(Cc, 3));
   g.deleteAttribute('normal'); g.deleteAttribute('uv');
   g.computeVertexNormals();
+}
+
+// The bolt from the logo (src/lib/brand-markup.js, 40×40 artboard, y down) as a faceted 3D crystal
+const BOLT_H = 0.92;
+const BOLT_PTS = [[22.8, 1.5], [16, 21.4], [20, 21.4], [17.2, 38.5], [24, 17.6], [19.8, 17.6]];
+const BOLT_C = [new Color('#7fe7ff'), new Color('#3b82f6'), new Color('#8b5cf6'), new Color('#f472b6')];
+function boltGeometry() {
+  const s = BOLT_H / 37, wide = 1.8;      // a little wider than the logo's bolt, so it reads as a solid crystal
+  const shape = new Shape(BOLT_PTS.map(([x, y]) => new Vector2((x - 20) * s * wide, (38.5 - y) * s)));
+  const g = new ExtrudeGeometry(shape, { depth: 0.16, steps: 1, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.055, bevelSegments: 1, curveSegments: 1 });
+  g.translate(0, 0, -0.08);
+  const flat = g.index ? g.toNonIndexed() : g;
+  const p = flat.attributes.position, col = new Float32Array(p.count * 3), c = new Color(), a = new Vector3(), b = new Vector3(), d = new Vector3(), n = new Vector3();
+  const rnd = rng(9);
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); d.fromBufferAttribute(p, i + 2);
+    const y = (a.y + b.y + d.y) / 3;
+    n.subVectors(d, b).cross(a.clone().sub(b)).normalize();
+    const t = clamp(1 - y / BOLT_H, 0, 1) * (BOLT_C.length - 1), k = Math.floor(Math.min(t, BOLT_C.length - 1.001));
+    c.copy(BOLT_C[k]).lerp(BOLT_C[k + 1], t - k);
+    c.lerp(C.cyan, clamp(n.y * 0.4 + n.x * 0.3, 0, 1) * 0.35);       // facets catching the key light
+    c.multiplyScalar(0.9 + rnd() * 0.2);
+    for (let j = 0; j < 3; j++) col.set([c.r, c.g, c.b], (i + j) * 3);
+  }
+  flat.setAttribute('color', new BufferAttribute(col, 3));
+  flat.deleteAttribute('normal'); flat.deleteAttribute('uv');
+  flat.computeVertexNormals();
+  return flat;
 }
 
 function glowTexture() {
@@ -232,11 +255,11 @@ export function buildMascot() {
   const collar = new Mesh(new CylinderGeometry(0.15, 0.19, 0.15, 20), darkMetal); collar.position.y = 0.07; gemPivot.add(collar);
   const collarGlow = new Mesh(new TorusGeometry(0.158, 0.017, 8, 32), new MeshBasicMaterial({ color: '#ff4fd8', toneMapped: false }));
   collarGlow.rotation.x = Math.PI / 2; collarGlow.position.y = 0.13; gemPivot.add(collarGlow);
-  const gemGeo = new LatheGeometry([new Vector2(0.001, 0), new Vector2(0.12, 0.0), new Vector2(0.41, 0.27), new Vector2(0.395, 0.315), new Vector2(0.001, 0.66)], 8).toNonIndexed();
-  paintFaces(gemGeo, gemPaint, rng(5));
-  gemGeo.computeVertexNormals();
-  const gemMat = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.14, metalness: 0.15, emissive: new Color('#2d6bff'), emissiveIntensity: 0.4, envMapIntensity: 1.3 });
-  const gem = new Mesh(gemGeo, gemMat); gem.position.y = 0.15; gem.rotation.y = Math.PI / 8; gemPivot.add(gem);
+  // the head piece: the SparkScribe bolt (same outline as the logo) as a solid crystal, extruded with
+  // chamfered (faceted) edges and colored like the body: cyan at the top → blue → violet → pink at the tip
+  const gemGeo = boltGeometry();
+  const gemMat = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.16, metalness: 0.15, emissive: new Color('#2d6bff'), emissiveIntensity: 0.4, envMapIntensity: 1.3 });
+  const gem = new Mesh(gemGeo, gemMat); gem.position.y = 0.1; gemPivot.add(gem);
   const gemHalo = glow(1.1, new Color('#22d3ee'), 0.12); gemHalo.position.set(0, 0.45, 0.2); gemPivot.add(gemHalo);
 
   // ---------- arms ----------
@@ -358,8 +381,8 @@ export function buildMascot() {
     else if (gm === 'success') { const h = (t * 1.6) % 1; tmpC.copy(h < 0.33 ? gemCyan : h < 0.66 ? gemViolet : gemPink); gB += 0.8; gHalo += 0.35; }
     else if (gm === 'shimmer') { tmpC.lerp(gemViolet, 0.5 + 0.5 * Math.sin(t * 9)); gB += 0.25; }
     if (expr.base === 'excited' || expr.temp === 'excited') tmpC.lerp(Math.sin(t * 12) > 0 ? gemPink : gemCyan, 0.6);
-    if (expr.base === 'processing') { tmpC.lerp(gemViolet, 0.5 + 0.5 * Math.sin(t * 2)); gem.rotation.y = Math.PI / 8 + t * 0.9; }
-    else gem.rotation.y += (Math.PI / 8 + Math.round((gem.rotation.y - Math.PI / 8) / (Math.PI / 4)) * (Math.PI / 4) - gem.rotation.y) * k;
+    if (expr.base === 'processing') { tmpC.lerp(gemViolet, 0.5 + 0.5 * Math.sin(t * 2)); gem.rotation.y = t * 0.9; }
+    else gem.rotation.y += (Math.round(gem.rotation.y / (Math.PI * 2)) * Math.PI * 2 - gem.rotation.y) * k;   // settles facing front
     if (expr.base === 'error') tmpC.lerp(gemViolet, 0.6);
     gemMat.emissive.copy(tmpC); gemMat.emissiveIntensity = gB;
     gemHalo.material.color.copy(tmpC).lerp(white, 0.2); gemHalo.material.opacity = clamp(gHalo, 0, 0.9);

@@ -2,7 +2,7 @@ import { decodeToMono16k, peaks } from './audio.js';
 import { isConfigured } from './lib/supabase.js';
 import { mountAccountMenu, getSession } from './lib/account.js';
 import { saveTranscript, updateTranscriptText, updateRecordingType, stashPending, peekPending, clearPending } from './lib/transcripts.js';
-import { toStoredSegments, RECORDING_TYPES } from './lib/segments.js';
+import { toStoredSegments } from './lib/segments.js';
 import { cleanText } from './lib/clean.js';
 import { mountInsights } from './insights/insights.js';
 import { sparkPulse } from './lib/brand.js';
@@ -29,7 +29,7 @@ const els = {
   advanced: $('advanced'), advSummary: $('advSummary'), vocabInput: $('vocabInput'),
   qualityChip: $('qualityChip'), speakersStepLabel: $('speakersStepLabel'),
   muteBtn: $('muteBtn'), volSlider: $('volSlider'),
-  recTypeSelect: $('recTypeSelect'), viewToggle: $('viewToggle'),
+  viewToggle: $('viewToggle'),
 };
 
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
@@ -92,8 +92,7 @@ function updateSettingsUI() {
   const sp = els.speakersSelect.value;
   const speakers = sp === 'auto' ? 'Auto speakers' : sp === 'off' ? 'No speaker labels' : els.speakersSelect.selectedOptions[0].textContent;
   const n = vocabulary().length;
-  const type = els.recTypeSelect.value ? els.recTypeSelect.selectedOptions[0].textContent : '';
-  els.advSummary.textContent = [speakers, type, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
+  els.advSummary.textContent = [speakers, n ? `${n} important word${n === 1 ? '' : 's'}` : '', els.modelSelect.value ? 'Custom model' : ''].filter(Boolean).join(' · ');
   updateModeNote();
 }
 function updateModeNote() {
@@ -108,7 +107,6 @@ function updateModeNote() {
   els.modeNote.textContent = parts.join(' ');
 }
 [els.modelSelect, els.speakersSelect].forEach((s) => s.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
-els.recTypeSelect.addEventListener('change', updateSettingsUI);
 els.modeInputs.forEach((i) => i.addEventListener('change', () => { savePrefs(); updateSettingsUI(); }));
 els.vocabInput.addEventListener('input', () => { savePrefs(); updateSettingsUI(); });
 
@@ -415,7 +413,8 @@ async function start(file) {
   const q = new URLSearchParams(location.search);
   const samples = decoded.samples;
   const mode = modeValue();
-  const recordingType = RECORDING_TYPES.includes(els.recTypeSelect.value) ? els.recTypeSelect.value : null;
+  // the recording type is always Auto here: SparkScribe infers it, and it can be changed on the result page
+  const recordingType = null;
   state = { duration: decoded.duration, language: 'en', mode, recordingType, view: 'original' };
   getWorker().postMessage({
     type: 'run',

@@ -69,7 +69,21 @@ export function mountMascot({ page = 'other' } = {}) {
   const minX = () => 1.3 * k + 4;
   const maxX = () => vw() - 1.3 * k - 4;
   const clampX = (v) => clamp(v, minX(), maxX());
-  const homeX = () => clampX(vw() - (touch ? 1.5 : 2.3) * k - (touch ? 4 : 14));
+  // Home is anchored to the page's content (getBoundingClientRect), not to a viewport fraction: at 67 % zoom
+  // or on a wide screen the viewport grows but the content column doesn't, so a viewport-relative spot
+  // drifted away from everything. It stands just beside the content when there's room, else at the edge.
+  const HOME_ANCHOR = { home: ['.hear-grid', 'main.app'], transcript: ['main.app'], library: ['main.app'] };
+  function homeX() {
+    const edge = clampX(vw() - (touch ? 1.5 : 2.3) * k - (touch ? 4 : 14));
+    if (touch) return edge;
+    for (const sel of HOME_ANCHOR[page] || ['main.app']) {
+      const el = document.querySelector(sel);
+      const r = el?.offsetParent !== null ? el?.getBoundingClientRect() : null;
+      if (!r || !r.width) continue;
+      return vw() - r.right >= 2.8 * k ? clampX(r.right + 1.45 * k) : edge;
+    }
+    return edge;
+  }
   function size() {
     H = touch ? 72 : Math.round(clamp(innerHeight * 0.15, 100, 132));
     k = H / (DIM.foot + DIM.top);
@@ -158,6 +172,7 @@ export function mountMascot({ page = 'other' } = {}) {
     if (['gait', 'sit', 'hang', 'climb', 'slide'].includes(anim.baseName) && mode === 'stand') anim.setBase(moodBase(), {}, 0.4);
     if (mode === 'wall') { mode = 'air'; vx = 0; vy = 0; w = 0; wy = 0; anim.setBase('air', {}, 0.25); }   // it lets go of the wall
     if (mode === 'perch' || mode === 'leap') anim.setBase('perch', perchPrm, 0.2);
+    if (mode === 'intro') abortIntro();   // interrupted mid-entrance: it simply appears
   }
   function run(fn) {
     cancelTask();
@@ -244,6 +259,7 @@ export function mountMascot({ page = 'other' } = {}) {
 
   // ---------- the frame loop ----------
   let raf = 0, lastTs = 0, running = false, calmTick = 0;
+  let devSlow = 1;                         // development only: slow motion for inspecting animations
   function start() {
     if (running || !stage || !live()) return;
     running = true; lastTs = performance.now();
@@ -254,7 +270,7 @@ export function mountMascot({ page = 'other' } = {}) {
     raf = 0;
     if (!running) return;
     raf = requestAnimationFrame(frame);
-    const dt = Math.min(0.05, Math.max(0.001, (ts - lastTs) / 1000));
+    const dt = Math.min(0.05, Math.max(0.001, (ts - lastTs) / 1000)) * devSlow;
     lastTs = ts;
     clock += dt;
     if (calm()) { calmFrame(dt); return; }
@@ -266,6 +282,7 @@ export function mountMascot({ page = 'other' } = {}) {
     stepYaw(dt);
     P = anim.update(dt);
     if (mode === 'stand') Y = lerp(FLOOR() - support(roll + P[K.sr]) * k, peekY(), ss(peekK));
+    if (glideTo != null) { if (mode !== 'stand' || loco || grab) glideTo = null; else { X += (glideTo - X) * (1 - Math.exp(-dt * 5)); if (Math.abs(glideTo - X) < 0.5) { X = glideTo; glideTo = null; } } }
     stepSecondary(dt);
     stepEye(dt);
     autonomy();
@@ -304,10 +321,12 @@ export function mountMascot({ page = 'other' } = {}) {
   function place() {
     const cx = sx(), cy = sy();
     stageEl.style.transform = `translate3d(${(cx - S / 2).toFixed(1)}px, ${(cy - S / 2).toFixed(1)}px, 0)`;
+    const edge = mode === 'intro' && intro ? intro.edge : null;
+    stageEl.style.clipPath = edge != null ? `inset(0 0 ${Math.max(0, cy + S / 2 - edge).toFixed(1)}px 0)` : '';
     const r = 1.125 * k;
     hit.style.transform = `translate3d(${(cx - r).toFixed(1)}px, ${(cy - r).toFixed(1)}px, 0)`;
     const ground = FLOOR() - support(roll + P[K.sr]) * k;
-    const alt = mode === 'wall' || mode === 'perch' || mode === 'leap' ? 2 : Math.max(0, ground - cy) / (3 * k);
+    const alt = mode === 'wall' || mode === 'perch' || mode === 'leap' || mode === 'intro' ? 2 : Math.max(0, ground - cy) / (3 * k);
     const sw = 1.9 * k, sh = 0.34 * k;
     shadowEl.style.transform = `translate3d(${(cx - sw / 2).toFixed(1)}px, ${(FLOOR() - sh * 0.55).toFixed(1)}px, 0) scale(${(1 - Math.min(alt, 0.6)).toFixed(3)})`;
     shadowEl.style.opacity = peekK > 0.5 ? '0' : (1 - Math.min(alt, 0.85)).toFixed(2);
@@ -334,11 +353,13 @@ export function mountMascot({ page = 'other' } = {}) {
   function stepPerch(dt) {
     const A = perchAnchor();
     if (mode === 'leap') {
-      if (!A || !A.visible) { letGo(false); return; }
+      const T = leap.to ? leap.to() : A;
+      if (!T || (!leap.to && !A.visible)) { letGo(false); return; }
       leap.t = Math.min(1, leap.t + dt / leap.dur);
       const u = ss(leap.t);
-      X = lerp(leap.fx, A.x, u);
-      Y = lerp(leap.fy, A.y, u) - leap.peak * 4 * leap.t * (1 - leap.t);
+      X = lerp(leap.fx, T.x, u);
+      Y = lerp(leap.fy, T.y, u) - leap.peak * 4 * leap.t * (1 - leap.t);
+      if (leap.t >= 1 && leap.done) { const f = leap.done; leap = null; f(); return; }
       if (leap.t >= 1) {
         mode = 'perch'; leap = null;
         perchSide = perchPrm.side = A.side;
@@ -370,6 +391,65 @@ export function mountMascot({ page = 'other' } = {}) {
     const q = document.querySelector('.study.quiz .q-text')?.getBoundingClientRect();
     if (q) lookAt(q.left + q.width / 2, q.top + q.height / 2, 2.5);
   }
+  // ---------- homepage entrance (first homepage visit in a session) ----------
+  // It hides behind the "Use it" card: a hand comes up over the card's top edge and grabs it, the bolt peeks
+  // out, then the speaker; it looks around, the other hand grabs, it pulls itself up, hops out, lands with a
+  // squash and a happy pulse. Everything below the card's edge is clipped, so it really is behind the card.
+  const INTRO_KEY = 'sparkscribe.mascot.intro';
+  const INTRO_CARD = '.hear-card:last-child';
+  // how far (body units) the body center is below the card's top edge over time
+  const INTRO_Y = [[0, 2.6], [0.7, 1.55], [1.0, 1.6], [1.8, 1.45], [2.4, 0.1], [3.8, 0.05], [4.3, -0.95], [4.6, -0.9]];
+  let intro = null;
+  const introCard = () => {
+    const el = document.querySelector(INTRO_CARD);
+    const r = el?.getBoundingClientRect();
+    return r && r.width ? r : null;
+  };
+  const introVisible = (r) => r && r.top > 1.5 * k && r.top < innerHeight - 3.2 * k && r.right < vw() + 4;
+  function introY(t) {
+    let i = 0; while (i < INTRO_Y.length - 2 && INTRO_Y[i + 1][0] <= t) i++;
+    const [t0, a] = INTRO_Y[i], [t1, b] = INTRO_Y[i + 1];
+    return lerp(a, b, ss((t - t0) / (t1 - t0)));
+  }
+  function stepIntro(dt) {
+    const r = introCard();
+    if (!r || !introVisible(r)) { abortIntro(); return; }
+    intro.t += dt;
+    intro.edge = r.top;
+    X = r.right - 1.9 * k;
+    Y = r.top + introY(intro.t) * k;
+  }
+  function abortIntro() {                       // the card scrolled away mid-entrance: just appear normally
+    intro = null; mode = 'stand'; roll = 0;
+    stageEl.style.clipPath = '';
+    X = homeX(); anim.release(0.1); anim.setBase('idle', {}, 0.1);
+  }
+  async function playIntro(id) {
+    const r = introCard();
+    if (!r || !introVisible(r)) return false;
+    try { sessionStorage.setItem(INTRO_KEY, String(Date.now())); } catch { /* fine */ }
+    hidden(false);
+    intro = { t: 0, edge: r.top };
+    mode = 'intro'; roll = 0; yaw = 0; peek = false; peekK = 0;
+    X = r.right - 1.9 * k; Y = r.top + 2.6 * k;
+    anim.setBase('idle', {}, 0.01);
+    E.base('idle');
+    setTimeout(() => E.flash('curious', 1400), 1700);          // the speaker "notices" you as it peeks
+    await act(CLIPS.intro, id, { fadeIn: 0.01 });
+    if (mode !== 'intro') return true;
+    // hop out and down to its place
+    intro = null; mode = 'leap';
+    const fx = X, fy = Y;
+    leap = { t: 0, dur: 0.75, fx, fy, peak: 140, to: () => ({ x: homeX(), y: standY() }), done: () => { mode = 'stand'; roll = 0; anim.setBase('idle', {}, 0.15); } };
+    anim.setBase('air', {}, 0.1);
+    await until(() => mode === 'stand', id);
+    spr.sqV += 3.2;                              // landing squash
+    E.pulse(2); E.flash('happy', 1000);
+    await act(CLIPS.land, id, { fadeIn: 0.02 });
+    return true;
+  }
+  function hidden(on) { el.classList.toggle('m-hiding', on); }
+
   // quiz over (or ended): let go of the card, land, then `then` runs instead of the usual landing
   function releasePerch(then = null) {
     perchWanted = false;
@@ -381,6 +461,7 @@ export function mountMascot({ page = 'other' } = {}) {
   function stepGround(dt) {
     peekK += ((peek ? 1 : 0) - peekK) * (1 - Math.exp(-dt * 3.2));
     if (mode === 'perch' || mode === 'leap') { stepPerch(dt); return; }
+    if (mode === 'intro') { stepIntro(dt); return; }
     const prev = speed;
     if (mode === 'stand') {
       if (loco) {
@@ -996,6 +1077,7 @@ export function mountMascot({ page = 'other' } = {}) {
   };
   window.addEventListener('sparkscribe:mascot', (e) => {
     if (pref === 'off') return;
+    if (el.classList.contains('m-hiding')) hidden(false);
     const { type, ...detail } = e.detail || {};
     try { signals[type]?.(detail); } catch { /* the mascot never breaks the app */ }
   });
@@ -1004,7 +1086,20 @@ export function mountMascot({ page = 'other' } = {}) {
   function save() { try { sessionStorage.setItem(POS_KEY, JSON.stringify({ xf: (loco ? loco.tx : clampX(X)) / vw(), moved })); } catch { /* fine */ } }
   addEventListener('pagehide', save);
   document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); else start(); });
-  addEventListener('resize', () => { size(); if (mode === 'stand') X = !moved && !taskActive && !loco ? homeX() : clampX(X); }, { passive: true });
+  // browser zoom and resizing fire 'resize': the anchor is measured again; a small move glides, a big jump
+  // (the layout really changed) fades out and back in at the new place instead of teleporting
+  let reanchorT = 0, glideTo = null;
+  function reanchor() {
+    if (mode !== 'stand' || taskActive || grab || loco || !stage) return;
+    const target = moved ? clampX(X) : homeX();
+    const d = target - X;
+    if (Math.abs(d) < 3) return;
+    if (Math.abs(d) < 3 * k) { glideTo = target; return; }
+    stageEl.classList.add('m-fading');
+    setTimeout(() => { X = target; glideTo = null; stageEl.classList.remove('m-fading'); }, 220);
+  }
+  addEventListener('resize', () => { size(); if (mode === 'stand') X = clampX(X); clearTimeout(reanchorT); reanchorT = setTimeout(reanchor, 160); }, { passive: true });
+  if ('ResizeObserver' in window) new ResizeObserver(() => { clearTimeout(reanchorT); reanchorT = setTimeout(reanchor, 160); }).observe(document.body);
   if (!touch) addEventListener('pointermove', onPointerMove, { passive: true });
 
   // ---------- On / Quiet / Off (chosen in Settings → Preferences, src/lib/prefs.js) ----------
@@ -1044,8 +1139,34 @@ export function mountMascot({ page = 'other' } = {}) {
     applyPref();
     if (pref === 'off') return;
     if (travelled) run(async (id) => { await runIn(id); afterAction(5000); });
+    else if (introWanted()) waitForIntro();
     else if (!peek) run(async (id) => { await wait(0.5, id); E.flash('happy', 900); await act(CLIPS.hop, id); });
   }).catch(fallback);
+  // the entrance plays once per session, on the homepage, when the "Use it" card is on screen; until then the
+  // mascot stays hidden. Any real product moment (a file, an upload) or ~9 s without the card: it just appears.
+  function introWanted() {
+    if (page !== 'home' || touch || calm() || pref !== 'on') return false;
+    try { if (sessionStorage.getItem(INTRO_KEY)) return false; } catch { return false; }
+    return !!document.querySelector(INTRO_CARD);
+  }
+  function waitForIntro() {
+    hidden(true);
+    const started = performance.now();
+    const check = () => {
+      if (!el.classList.contains('m-hiding')) return;                 // something else showed it already
+      if (pref !== 'on' || mood !== 'idle' || fileDrag.active) { appearNormally(); return; }
+      if (introVisible(introCard()) && mode === 'stand' && !taskActive) { run(playIntro); return; }
+      if (performance.now() - started > 9000) { appearNormally(); return; }
+      setTimeout(check, 250);
+    };
+    setTimeout(check, 400);
+  }
+  function appearNormally() {
+    if (!el.classList.contains('m-hiding')) return;
+    hidden(false);
+    run(async (id) => { await wait(0.2, id); E.flash('happy', 900); await act(CLIPS.hop, id); });
+  }
+
   // Off: the 3D character isn't even loaded until it's switched on
   function bootSoon() {
     if (booted) return;
@@ -1065,6 +1186,7 @@ export function mountMascot({ page = 'other' } = {}) {
       behave: (b) => run((id) => behave(b, id)),
       throwIt: (tvx, tvy, tw) => { cancelTask(); mode = 'air'; vx = tvx; vy = tvy; w = tw ?? clamp(tvx * 0.0045, -10, 10); wy = 0; launch = Math.hypot(tvx, tvy); anim.setBase('air', {}, 0.15); },
       // step the simulation by hand (a hidden tab pauses requestAnimationFrame)
+      slow: (f = 1) => { devSlow = f; },
       tick: (sec, fps = 60) => { running = true; for (let i = 0; i < sec * fps; i++) { frame(lastTs + 1000 / fps); cancelAnimationFrame(raf); } },
       shot: () => { draw(0.016); return canvas.toDataURL('image/png'); },
       pose: () => ({ X, Y, yaw, roll, sr: P[K.sr], sy: P[K.sy], aLz: P[K.aLz], aRz: P[K.aRz], lLx: P[K.lLx], twist: P[K.twist] }),

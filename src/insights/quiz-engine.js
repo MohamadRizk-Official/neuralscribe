@@ -5,7 +5,7 @@
 // A run is a queue of items { qi, order }: qi = index of the stored question, order = the order its options
 // are shown in. Keeping the queue explicit is what later lets an adaptive mode insert items (repeat a weak
 // concept, a harder follow-up, spaced review) without changing the screens.
-import { shortAnswerCorrect } from './tools.js';
+import { localGrade } from './tools.js';
 
 const shuffled = (arr) => arr.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
 
@@ -37,12 +37,16 @@ export const correctCount = (run) => run.answers.filter((a) => a?.correct).lengt
 // grade one answer for the current item; choices must match exactly, short answers are checked leniently
 export function answer(run, questions, given) {
   const q = questions[currentItem(run).qi];
-  const correct = q.type === 'short_answer' ? shortAnswerCorrect(given, q) : given === q.answer;
-  run.answers[run.i] = { given, correct };
+  const correct = q.type === 'short_answer' ? !!localGrade(given, q) : given === q.answer;
+  run.answers[run.i] = { given, correct, verdict: correct ? 'correct' : 'incorrect' };
   return correct;
 }
+// a short answer graded by meaning: "close" (right idea, less precise) counts as right
+export function record(run, given, { verdict, typo = false }) {
+  run.answers[run.i] = { given, correct: verdict !== 'incorrect', verdict, typo };
+}
 // the learner says their short answer was right
-export function overrideCorrect(run) { if (run.answers[run.i]) { run.answers[run.i].correct = true; run.answers[run.i].overridden = true; } }
+export function overrideCorrect(run) { if (run.answers[run.i]) Object.assign(run.answers[run.i], { correct: true, verdict: 'correct', overridden: true }); }
 
 // → true when that was the last item
 export function advance(run) {

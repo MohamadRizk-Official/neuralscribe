@@ -106,6 +106,14 @@ export function mockProvider() {
       maybeFail();
       const text = messages.map((m) => (typeof m.content === 'string' ? m.content : m.content.map((c) => c.text).join('\n'))).join('\n');
       await new Promise((r) => setTimeout(r, 400));
+      if (task === 'grade') {   // crude: a shared word → correct; a few broad place words → close
+        const tag = (t) => (text.match(new RegExp(`<${t}>([\\s\\S]*?)</${t}>`)) || [, ''])[1].toLowerCase();
+        const exp = words(tag('expected_answer')), ans = tag('learner_answer');
+        const json = exp.some((w) => ans.includes(w)) ? { verdict: 'correct', feedback: '[Mock] Same idea as the recording.', corrected: null }
+          : /worldwide|global|everywhere|nationwide/.test(ans) ? { verdict: 'close', feedback: '[Mock] Close enough — the recording said it differently.', corrected: null }
+            : { verdict: 'incorrect', feedback: '[Mock] Not what the recording says.', corrected: null };
+        return { text: JSON.stringify(json), json, model: 'mock', usage: { input: Math.ceil(text.length / 3.2), output: 30 } };
+      }
       const json = structured(task, parseLines(text));
       return { text: JSON.stringify(json), json, model: 'mock', usage: { input: Math.ceil(text.length / 3.2), output: 200 } };
     },

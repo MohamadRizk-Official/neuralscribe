@@ -23,7 +23,7 @@ export const ARM = 1.42;
 export const FOOT_Y = -0.27;     // foot center below the hip joint
 export const DIM = {
   foot: 1.19,        // body center → bottom of the feet (standing support height)
-  top: 1.7,          // body center → tip of the gem
+  top: 1.9,          // body center → tip of the lightning-bolt head piece
   shoulder: [0.88, -0.02, 0.04],
   hip: [0.45, -0.7, 0.02],
   armRest: ARM,      // arms rest held out to the sides (rotation about z)
@@ -32,8 +32,8 @@ export const DIM = {
 // plane (its silhouette: body, feet, gem; arms move out of the way when it lies down)
 const HULL = [];
 for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2; HULL.push([1.02 * Math.cos(a), 0.93 * Math.sin(a)]); }
-for (const s of [-1, 1]) HULL.push([s * 0.95, -1.08], [s * 0.62, -1.19], [s * 0.3, -1.17], [s * 0.95, -0.9], [s * 0.41, 1.3], [s * 0.19, 0.95]);
-HULL.push([0, 1.7]);
+for (const s of [-1, 1]) HULL.push([s * 0.95, -1.08], [s * 0.62, -1.19], [s * 0.3, -1.17], [s * 0.95, -0.9], [s * 0.2, 1.45], [s * 0.19, 0.95]);
+HULL.push([0.06, 1.9]);
 export function support(theta) {
   const s = Math.sin(theta), c = Math.cos(theta);
   let m = 0;
@@ -161,6 +161,20 @@ export const CLIPS = {
   perchAww: sideClip(() => clip([[0, PERCH], [0.2, { ...PERCH, by: -0.12, aLz: 0.12, roll: 0.2, eyeX: -0.2, eyeY: -0.85, eyeW: 1 }],
     [0.42, { ...PERCH, by: -0.1, aLz: 0.15, roll: 0.06, eyeY: -0.8, eyeW: 1 }], [0.62, { ...PERCH, by: -0.08, aLz: 0.2, roll: 0.16, eyeY: -0.6, eyeW: 0.8 }],
     [0.85, { ...PERCH, eyeW: 0.3 }], [1.0, PERCH]])),
+  // homepage entrance: from crouched sideways behind a card (rolled ~55°), one hand reaches over the edge,
+  // it straightens so the bolt peeks, then the speaker; it looks around, the other hand grabs, it pulls up
+  intro: clip([
+    [0, { sr: 0.95, aLz: 1.2, aRz: -1.0, lLx: -0.3, lRx: -0.2 }],
+    [0.7, { sr: 0.95, aLz: 2.6, aLx: -0.15, aRz: -1.0, lLx: -0.3, lRx: -0.2 }],
+    [1.0, { sr: 0.9, aLz: 2.75, aLx: -0.1, aRz: -1.0, sq: 0.03 }],
+    [1.8, { sr: 0.35, aLz: 2.3, aRz: -1.2, eyeY: 0.4, eyeW: 0.6 }],
+    [2.4, { sr: 0.08, aLz: 1.9, aRz: -1.3, eyeY: 0.2, eyeW: 0.8 }],
+    [2.9, { sr: 0.06, aLz: 1.9, aRz: -1.3, eyeX: -0.9, eyeY: 0.1, eyeW: 1, twist: -0.12 }],
+    [3.4, { sr: 0.04, aLz: 1.9, aRz: -1.3, eyeX: 0.9, eyeY: 0.15, eyeW: 1, twist: 0.12 }],
+    [3.8, { aLz: 1.9, aRz: -1.9, eyeY: 0.3, eyeW: 1 }],
+    [4.3, { aLz: 1.0, aRz: -1.0, sq: -0.06, eyeW: 0.5 }],
+    [4.6, { aLz: 1.1, aRz: -1.1, sq: 0.08 }],
+  ]),
   tilt: clip([[0, {}], [0.3, { roll: 0.15, twist: -0.12, aLz: 1.6 }], [1.3, { roll: 0.16, twist: -0.1, aLz: 1.6 }], [1.7, {}]]),
   armUp: clip([[0, {}], [0.2, { aRz: -2.85, aRx: -0.2, roll: 0.05 }], [0.7, { aRz: -2.75, roll: 0.05 }], [1.0, {}]]),
   pressUp: clip([[0, { by: -0.25, lLx: -1.25, lRx: -1.25, lLz: 0.15, lRz: -0.15, fLp: 0.4, fRp: 0.4, aLz: 0.75, aRz: -0.75, pitch: -0.08 }],

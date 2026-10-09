@@ -18,7 +18,7 @@
 //     the stored answer.
 import { getProvider, taskConfig, AIError } from './provider.js';
 import { createMeter } from './usage.js';
-import { ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, NOTES_SCHEMA, notesInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
+import { GRADE_SYSTEM, GRADE_SCHEMA, gradeInstructions, ANALYST_SYSTEM, ASK_SYSTEM, OVERVIEW_SCHEMA, overviewInstructions, DETAILED_SCHEMA, detailedInstructions, NOTES_SCHEMA, notesInstructions, INSIGHT_SPECS, EXPAND_SCHEMA, expandInstructions } from './prompts.js';
 import { groundStructured, groundChapters, groundAnswer } from './grounding.js';
 import { TOOLS, ARTIFACT_KINDS, normalizeSettings, cardCount, questionCount, examBacked } from './tools.js';
 import { INSTRUCTIONS_MISSING } from '../../src/lib/tool-settings.js';
@@ -223,6 +223,36 @@ export async function generateArtifact(db, { transcriptionId, kind, settings, fo
     meter.finish({ error: message });
     await db.failArtifact(claimed.id, message, previous).catch(() => {});
     throw err instanceof AIError ? err : new AIError(message);
+  }
+}
+
+// Practice Quiz: grade one short answer by meaning. The browser sends only which stored question (quiz id +
+// index) and the learner's answer; the question, expected answer and the recording's words come from the
+// database (Row Level Security: the user's own quiz), so this can't be used as a general-purpose model.
+// One small Haiku call; obvious matches are already accepted in the browser without calling this.
+export async function gradeShortAnswer(db, { transcriptionId, artifactId, index, answer, userId = null }) {
+  const given = String(answer || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!given) throw new AIError('Type an answer first.', { status: 400, code: 'bad_request' });
+  const artifacts = await db.listArtifacts(transcriptionId);
+  const quiz = artifacts.find((a) => a.id === artifactId && a.kind === 'quiz' && a.status === 'ready');
+  const q = quiz?.content?.questions?.[Number(index)];
+  if (!q || q.type !== 'short_answer') throw new AIError("That quiz question doesn't exist.", { status: 404, code: 'not_found' });
+  const { segments } = await loadTranscript(db, transcriptionId);
+  const lines = (q.refs || []).map((r) => segments.find((s) => s.id === r)).filter(Boolean).map((s) => s.text).join(' ');
+  const meter = createMeter({ feature: 'quiz:grade', transcriptionId, userId });
+  try {
+    const ai = getProvider();
+    const r = await meter.call('grade', () => ai.complete({
+      task: 'grade', ...taskConfig('grade'), system: GRADE_SYSTEM, schema: GRADE_SCHEMA,
+      messages: [{ role: 'user', content: gradeInstructions({ question: q.question, expected: q.answer, accept: q.accept || [], explanation: q.explanation || '', evidence: [q.evidence, lines].filter(Boolean).join(' / '), answer: given }) }],
+    }));
+    const j = r.json || {};
+    const verdict = ['correct', 'close', 'incorrect'].includes(j.verdict) ? j.verdict : 'incorrect';
+    meter.finish({});
+    return { verdict, feedback: String(j.feedback || '').slice(0, 240), corrected: typeof j.corrected === 'string' ? j.corrected.slice(0, 200) : null };
+  } catch (err) {
+    meter.finish({ error: err?.message || 'failed' });
+    throw err instanceof AIError ? err : new AIError("Your answer couldn't be checked.");
   }
 }
 

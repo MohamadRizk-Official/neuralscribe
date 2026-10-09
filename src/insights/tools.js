@@ -6,7 +6,7 @@
 import { fmtClock, RECORDING_TYPE_LABEL } from '../lib/segments.js';
 import { mascotSignal } from '../mascot/bus.js';
 import { TOOL_SETTINGS, MAX_INSTRUCTIONS, INSTRUCTIONS_MISSING, normalizeToolSettings, describeSettings, quizQuestionCount } from '../lib/tool-settings.js';
-import { newRun, currentItem, answeredCount, correctCount, answer as gradeAnswer, overrideCorrect, advance, summary } from './quiz-engine.js';
+import { newRun, currentItem, answeredCount, correctCount, answer as gradeAnswer, record as recordAnswer, overrideCorrect, advance, summary } from './quiz-engine.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -14,6 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const svg = (d) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${d}</svg>`;
 const ICON = {
   check: svg('<path d="M5 12.5 10 17.5 19.5 7"/>'),
+  approx: svg('<path d="M5 9.5c2.3-2 4.7-2 7 0s4.7 2 7 0M5 15.5c2.3-2 4.7-2 7 0s4.7 2 7 0"/>'),
   x: svg('<path d="M7 7l10 10M17 7 7 17"/>'),
   close: svg('<path d="M7 7l10 10M17 7 7 17"/>'),
   headphones: svg('<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6"/>'),
@@ -179,20 +180,44 @@ function groupByOwner(tasks) {
   return [...groups].sort((a, b) => (a[0] === 'Owner not specified') - (b[0] === 'Owner not specified'));
 }
 
-// ---------- short-answer checking (lenient, with a manual override in the UI) ----------
-const STOP = new Set('a an the of to in on for and or is are was were be by with that this it its as at from'.split(' '));
+// ---------- short-answer checking ----------
+// 1) here, instantly and without AI: the same words, ignoring case, punctuation, filler words, spacing
+//    ("door dash" = "DoorDash"), singular / plural and obvious typos ("shiping" = "shipping");
+// 2) anything else is checked by MEANING against the recording (server: gradeShortAnswer), which can say
+//    correct, close (right idea, less precise) or incorrect. "My answer was right" stays as a fallback.
+const STOP = new Set('a an the of to in on for and or is are was were be by with that this it its as at from just only around about some'.split(' '));
 const words = (s) => String(s || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter((w) => w && !STOP.has(w));
-export function shortAnswerCorrect(given, q) {
-  const g = words(given);
-  if (!g.length) return false;
-  return [q.answer, ...(q.accept || [])].some((ans) => {
-    const a = words(ans);
-    if (!a.length) return false;
-    if (a.join(' ') === g.join(' ')) return true;
-    const gs = new Set(g);
-    return a.filter((w) => gs.has(w)).length / a.length >= 0.75; // most of the expected words are there
-  });
+const stem = (w) => (w.length > 4 && w.endsWith('ies') ? `${w.slice(0, -3)}y` : w.length > 4 && /(ses|xes|ches|shes)$/.test(w) ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w);
+function edits(a, b) {                            // Levenshtein distance, small strings only
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
 }
+// conservative: short words must be exact, longer words may differ by one letter (two for long words)
+const typoOK = (exp, got) => { const d = edits(exp, got); return d === 0 || (d === 1 && exp.length >= 5) || (d === 2 && exp.length >= 9); };
+/** → null (not an obvious match) or { verdict: 'correct', typo: boolean } */
+export function localGrade(given, q) {
+  const g = words(given).map(stem);
+  if (!g.length) return null;
+  for (const ans of [q.answer, ...(q.accept || [])]) {
+    const a = words(ans).map(stem);
+    if (!a.length) continue;
+    if (a.join('') === g.join('')) return { verdict: 'correct', typo: false };          // also "door dash" = "doordash"
+    let hits = 0, typo = false;
+    for (const w of a) {
+      if (g.includes(w)) { hits++; continue; }
+      if (g.some((x) => typoOK(w, x))) { hits++; typo = true; }
+    }
+    if (hits / a.length >= 0.75) return { verdict: 'correct', typo };                   // most of the expected words
+  }
+  return null;
+}
+export const shortAnswerCorrect = (given, q) => !!localGrade(given, q);
 
 // ---------- the Create tab ----------
 /**
@@ -200,7 +225,8 @@ export function shortAnswerCorrect(given, q) {
  *   type(), contentVersion(), artifact(kind, key), busy(kind, key), error(kind, key), generate(kind, settings, force),
  *   remove(artifact), saveProgress(artifact, progress), chips(refs, byId), segById(), loading(label), errorBox(err, act),
  *   artifactsOf(kind), makeDialog(className, html), showTab(name), openExport(preselect), copy(text, label), privacyLine,
- *   canPlay() → the recording's audio is open on this page, duration() → seconds
+ *   canPlay() → the recording's audio is open on this page, duration() → seconds,
+ *   gradeShort(artifact, questionIndex, answer) → { verdict: 'correct' | 'close' | 'incorrect', feedback }
  */
 export function createToolsUI(api) {
   // sel: the settings the user is looking at for each tool (defaults to those of the latest result)
@@ -506,9 +532,12 @@ export function createToolsUI(api) {
     const kindLabel = { multiple_choice: 'Multiple choice', true_false: 'True or false', short_answer: 'Short answer' }[q.type] || '';
     let answers;
     if (q.type === 'short_answer') {
+      const state = ans ? (ans.verdict === 'close' ? 'close' : ans.correct ? 'right' : 'wrong') : '';
       answers = ans
-        ? `<div class="sa-given ${ans.correct ? 'right' : 'wrong'}"><span class="sa-label">Your answer</span><b>${esc(ans.given)}</b><span class="ans-mark" aria-hidden="true">${ans.correct ? ICON.check : ICON.x}</span></div>`
-        : `<form class="sa" data-act="sa" novalidate><label class="sr-only" for="saInput">Your answer</label><input id="saInput" class="sa-input" type="text" maxlength="200" placeholder="Type your answer" autocomplete="off" enterkeyhint="done" /><button class="btn btn-primary" type="submit">Check</button></form>`;
+        ? `<div class="sa-given ${state}"><span class="sa-label">Your answer</span><b>${esc(ans.given)}</b><span class="ans-mark" aria-hidden="true">${state === 'close' ? ICON.approx : ans.correct ? ICON.check : ICON.x}</span></div>`
+        : v.checking != null
+          ? `<div class="sa-given checking" role="status"><span class="sa-label">Your answer</span><b>${esc(v.checking)}</b><span class="sa-checking"><span class="ask-dots" aria-hidden="true"><i></i><i></i><i></i></span>Checking the meaning…</span></div>`
+          : `<form class="sa" data-act="sa" novalidate><label class="sr-only" for="saInput">Your answer</label><input id="saInput" class="sa-input" type="text" maxlength="200" placeholder="Type your answer" autocomplete="off" enterkeyhint="done" /><button class="btn btn-primary" type="submit">Check</button></form>`;
     } else {
       const tf = q.type === 'true_false';
       answers = `<div class="answers${tf ? ' tf' : ''}" role="group" aria-labelledby="qText">${it.order.map((j, pos) => {
@@ -521,14 +550,17 @@ export function createToolsUI(api) {
           <span class="ans-key" aria-hidden="true">${tf ? (o === 'True' ? ICON.check : ICON.x) : key}</span><span class="ans-text">${esc(o)}</span><span class="ans-mark" aria-hidden="true">${state === 'right' ? ICON.check : state === 'wrong' ? ICON.x : ''}</span></button>`;
       }).join('')}</div>`;
     }
-    const fb = ans ? `<div class="fb ${ans.correct ? 'right' : 'wrong'}" role="status">
-        <p class="fb-head"><span class="fb-ic" aria-hidden="true">${ans.correct ? ICON.check : ICON.x}</span>${ans.correct ? 'Correct' : 'Not quite'}</p>
+    const close = ans?.verdict === 'close';
+    const fb = ans ? `<div class="fb ${close ? 'close' : ans.correct ? 'right' : 'wrong'}" role="status">
+        <p class="fb-head"><span class="fb-ic" aria-hidden="true">${close ? ICON.approx : ans.correct ? ICON.check : ICON.x}</span>${close ? 'Close enough' : ans.correct ? 'Correct' : 'Not quite'}</p>
+        ${close ? `<p class="fb-why">The recording said <b>“${esc(q.answer)}”</b>, but your answer captures the main idea.</p>` : ''}
+        ${ans.typo ? `<p class="fb-why">Counted as <b>“${esc(q.answer)}”</b> — just a spelling slip.</p>` : ''}
         ${!ans.correct ? `<p class="fb-answer"><span>Correct answer</span><b>${esc(q.answer)}</b></p>` : ''}
         ${q.explanation ? `<p class="fb-why">${esc(q.explanation)}</p>` : ''}
         ${proofHtml(q, byId)}
         ${q.type === 'short_answer' && !ans.correct && ans.given ? '<button class="fb-link" type="button" data-act="mark-right">My answer was right</button>' : ''}
       </div>` : '';
-    return `<div class="study quiz${ans ? (ans.correct ? ' is-right' : ' is-wrong') : ''}" data-quiz="${a.id}">
+    return `<div class="study quiz${ans ? (close ? ' is-close' : ans.correct ? ' is-right' : ' is-wrong') : ''}" data-quiz="${a.id}">
       <header class="study-top">
         <div class="study-top-row">${crumb()}<button class="study-exit" type="button" data-act="exit">${ICON.close}<span>End quiz</span></button></div>
         <div class="study-prog"><span class="study-count">Question ${run.i + 1} of ${total}</span>${done ? `<span class="study-score">${ICON.check}${right} correct</span>` : ''}</div>
@@ -622,7 +654,7 @@ export function createToolsUI(api) {
   }
   function startRun(a, run) {
     const v = quizView(a);
-    v.run = run; v.phase = 'play';
+    v.run = run; v.phase = 'play'; v.checking = null;
     ui.focus = 'question';
     mascotSignal('quiz-start');
   }
@@ -758,10 +790,23 @@ export function createToolsUI(api) {
         rerender('result');
       };
       p.querySelectorAll('[data-opt]').forEach((b) => b.addEventListener('click', () => choose(qs[currentItem(run).qi].options[Number(b.dataset.opt)])));
-      p.querySelector('[data-act="sa"]')?.addEventListener('submit', (e) => {
+      p.querySelector('[data-act="sa"]')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const given = e.target.querySelector('input').value.trim();
-        if (given) choose(given);
+        if (!given || run.answers[run.i] || v.checking != null) return;
+        const it = currentItem(run), q = qs[it.qi];
+        const local = localGrade(given, q);
+        if (local) { recordAnswer(run, given, { verdict: 'correct', typo: local.typo }); mascotSignal('quiz-correct'); rerender('continue'); return; }
+        // not an obvious match: check the MEANING against the recording (one small AI call)
+        v.checking = given; rerender(null);
+        let r = null;
+        try { r = await api.gradeShort(a, it.qi, given); } catch { /* offline / not configured: graded strictly, "My answer was right" stays */ }
+        v.checking = null;
+        if (v.run !== run || currentItem(run) !== it || run.answers[run.i]) { api.refresh(); return; }   // the learner moved on
+        const verdict = r?.verdict === 'correct' || r?.verdict === 'close' ? r.verdict : 'incorrect';
+        recordAnswer(run, given, { verdict, typo: false });
+        mascotSignal(verdict === 'incorrect' ? 'quiz-wrong' : 'quiz-correct');
+        rerender('continue');
       });
       on('[data-act="mark-right"]', () => { overrideCorrect(run); rerender('continue'); });
       on('[data-act="qnext"]', next);

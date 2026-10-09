@@ -4,7 +4,7 @@
 // Used by the live result page (src/main.js) and the saved transcript page (src/pages/transcript.js).
 // The transcript stays the source of truth: everything here is generated from it on request, stored with
 // it, and every reference points back to a real line and timestamp.
-import { fetchState, requestInsight, requestTool, askQuestion, ApiError } from './api.js';
+import { fetchState, requestInsight, requestTool, askQuestion, gradeAnswer, ApiError } from './api.js';
 import { createToolsUI, artifactBlocks, blocksToText, TOOL_INFO, toolsFor } from './tools.js';
 import { openExportDialog } from './export.js';
 import { cleanText } from '../lib/clean.js';
@@ -676,6 +676,7 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
     saveProgress,
     chips, segById, loading, errorBox, timeOf, privacyLine,
     canPlay: () => ctx.playbackTime?.() != null,
+    gradeShort: (a, index, answer) => gradeAnswer(ctx.getId(), a.id, index, answer),
     duration: () => ctx.duration?.() || 0,
     makeDialog,
     showTab,

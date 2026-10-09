@@ -96,10 +96,9 @@
               <svg class="adv-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="adv-body">
-              <div class="adv-group">
-                <h4 class="adv-group-h">Speakers &amp; model</h4>
+              <div class="adv-row">
                 <div class="control">
-                  <label for="speakersSelect">Speakers</label>
+                  <label for="speakersSelect">Speakers <span class="info" tabindex="0" role="note" aria-label="If you know how many people talk, labels get more accurate. You can fix speakers afterwards." data-tip="If you know how many people talk, labels get more accurate. You can fix speakers afterwards.">i</span></label>
                   <select id="speakersSelect">
                   <option value="auto" selected>Auto-detect</option>
                   <option value="1">1 person</option>
@@ -114,10 +113,9 @@
                   <option value="10">10 people</option>
                   <option value="off">Don't label speakers</option>
                 </select>
-                  <p class="help-sm">If you know how many people talk, labels get more accurate. You can rename or fix speakers afterwards.</p>
                 </div>
                 <div class="control">
-                  <label for="modelSelect">Speech model</label>
+                  <label for="modelSelect">Speech model <span class="info" tabindex="0" role="note" aria-label="Automatic follows the Fast / Best Accuracy choice above. Pick one only for unusual cases." data-tip="Automatic follows the Fast / Best Accuracy choice above. Pick one only for unusual cases.">i</span></label>
                   <select id="modelSelect">
                   <option value="" selected>Automatic (matches mode)</option>
                   <option value="tiny">Whisper tiny</option>
@@ -125,33 +123,15 @@
                   <option value="small">Whisper small</option>
                   <option value="turbo">Whisper large-v3 turbo</option>
                 </select>
-                  <p class="help-sm">Automatic picks the model that fits the mode above.</p>
                 </div>
               </div>
-              <div class="adv-group">
-                <h4 class="adv-group-h">About this recording</h4>
-                <div class="control">
-                  <label for="recTypeSelect">Recording type</label>
-                  <select id="recTypeSelect">
-                    <option value="" selected>Auto</option>
-                    <option value="lecture">Lecture</option>
-                    <option value="meeting">Meeting</option>
-                    <option value="interview">Interview</option>
-                    <option value="podcast">Podcast</option>
-                    <option value="voice_message">Voice Message</option>
-                    <option value="general">Something else</option>
-                  </select>
-                  <p class="help-sm">Shapes Notes and the suggested Create tools. Auto decides from the length and speakers.</p>
+              <div class="control">
+                <label for="vocabEntry">Important words <span class="info" tabindex="0" role="note" aria-label="Names, terms, course vocabulary or company names SparkScribe should spell right." data-tip="Names, terms, course vocabulary or company names SparkScribe should spell right.">i</span></label>
+                <div class="chips-input" id="vocabChips">
+                  <ul class="chip-list" id="vocabList" aria-label="Important words"></ul>
+                  <input id="vocabEntry" type="text" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="e.g. Hadi Salame, biomechanics — Enter or comma" />
                 </div>
-                <div class="control">
-                  <label for="vocabEntry">Important words</label>
-                  <div class="chips-input" id="vocabChips">
-                    <ul class="chip-list" id="vocabList" aria-label="Important words"></ul>
-                    <input id="vocabEntry" type="text" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="Add a name or term, then Enter" />
-                  </div>
-                  <textarea id="vocabInput" hidden></textarea>
-                  <p class="help-sm">Helps SparkScribe spell names and specialized words, like <i>Hadi Salame</i> or <i>biomechanics</i>. Pasting a list works too.</p>
-                </div>
+                <textarea id="vocabInput" hidden></textarea>
               </div>
             </div>
           </details>
