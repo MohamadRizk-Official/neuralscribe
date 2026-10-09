@@ -1411,7 +1411,6 @@ dialog.sheet p.dlg-dim, .dlg-dim { color: var(--dim); font-size: 13px; margin: 0
 
 /* ===== Background energy + upload perimeter ===== */
 /* electric current through the background grid around the cursor (desktop only; drawn by main.js) */
-.bg-energy { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 /* upload: a continuous cyan → blue → violet → pink energy trace circulating around the whole edge */
 @property --dz-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }

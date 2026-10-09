@@ -21,6 +21,7 @@
     "@huggingface/transformers": "^4.3.1",
     "@supabase/supabase-js": "^2.117.3",
     "docx": "9.9.0",
-    "jspdf": "4.2.1"
+    "jspdf": "4.2.1",
+    "three": "^0.186.1"
   }
 }
