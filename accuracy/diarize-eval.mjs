@@ -12,7 +12,8 @@
 // another speaker than the one they were given.
 //
 // Audio never leaves this machine. Everything is decoded with the app's bundled ffmpeg (wasm).
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -43,9 +44,16 @@ async function decode(path) {
 
 // ---------- models (same ids and fp32 weights as the app on WebGPU; CPU here) ----------
 const T = await import('@huggingface/transformers');
+// machine safeguards (set by accuracy/diarize-run.mjs): never download models, cap the CPU threads a run may use
+if (process.env.DIAR_OFFLINE) T.env.allowRemoteModels = false;
+const threads = Number(process.env.DIAR_THREADS) || 0;
+const sessionOpts = threads ? { session_options: { intraOpNumThreads: threads, interOpNumThreads: 1 } } : {};
 const { analyzeAudio, preprocess } = await import(pathToFileURL(resolve(ROOT, 'src/engine/preprocess.js')).href);
 // --module lets an experiment run a modified copy of the diarization code against the same scoring
-const D = await import(pathToFileURL(resolve(opt('--module') || resolve(ROOT, 'src/engine/diarize.js'))).href);
+const modulePath = resolve(opt('--module') || resolve(ROOT, 'src/engine/diarize.js'));
+const D = await import(pathToFileURL(modulePath).href);
+// which speaker code produced a result (sha256 of the module file), so saved results can be matched to a commit
+const engineHash = createHash('sha256').update(readFileSync(modulePath)).digest('hex');
 if (opt('--rescore') && !D.UNKNOWN) throw new Error('bad module');
 // --features overlap=0,segDiff=0 … switches refinements off (ablation)
 for (const kv of (opt('--features') || '').split(',').filter(Boolean)) { const [k, v] = kv.split('='); if (D.FEATURES && k in D.FEATURES) D.FEATURES[k] = v !== '0'; }
@@ -62,9 +70,9 @@ else {
   const quality = analyzeAudio(audio);
   preprocess(audio, quality);
   const segProcessor = await T.AutoProcessor.from_pretrained(SEG_MODEL);
-  const segModel = await T.AutoModelForAudioFrameClassification.from_pretrained(SEG_MODEL, { device: 'cpu', dtype: 'fp32' });
+  const segModel = await T.AutoModelForAudioFrameClassification.from_pretrained(SEG_MODEL, { device: 'cpu', dtype: 'fp32', ...sessionOpts });
   const embProcessor = await T.AutoProcessor.from_pretrained(EMB_MODEL);
-  const embModel = await T.AutoModel.from_pretrained(EMB_MODEL, { device: 'cpu', dtype: 'fp32' });
+  const embModel = await T.AutoModel.from_pretrained(EMB_MODEL, { device: 'cpu', dtype: 'fp32', ...sessionOpts });
   const timings = [];
   D.configureDiarizer({
     segModel, segProcessor, segDevice: 'cpu', embModel, embProcessor, embDevice: 'cpu', Tensor: T.Tensor,
@@ -282,4 +290,10 @@ if (!quiet) {
   if (perMinute) console.log(perMinute.join('\n'));
   if (suspiciousTurns?.length) console.log('turns that sound like another speaker:\n' + suspiciousTurns.map((s) => `  ${s.at} (${s.len}s) given ${s.given}, sounds like ${s.soundsLike} (${s.own} vs ${s.other})`).join('\n'));
 }
-if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ ...report, segments }, null, 1));
+if (jsonOut) {
+  const ru = process.resourceUsage();
+  const run = saved ? saved.run : { engineHash, threads: threads || null, peakRssMB: Math.round(ru.maxRSS / 1024), cpuS: +((ru.userCPUTime + ru.systemCPUTime) / 1e6).toFixed(1) };
+  // written to a temp name first, so an interrupted run never leaves a half-written result behind
+  writeFileSync(jsonOut + '.tmp', JSON.stringify({ ...report, run, segments }, null, 1));
+  renameSync(jsonOut + '.tmp', jsonOut);
+}
