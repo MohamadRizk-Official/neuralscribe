@@ -5,7 +5,7 @@ import { relatedMaterialHtml, bindRelatedMaterial } from './lib/related-material
 import { isConfigured } from './lib/supabase.js';
 import { mountAccountMenu, getSession } from './lib/account.js';
 import { saveTranscript, updateTranscriptText, updateRecordingType, stashPending, peekPending, clearPending } from './lib/transcripts.js';
-import { toStoredSegments, RECORDING_TYPE_LABEL } from './lib/segments.js';
+import { toStoredSegments, RECORDING_TYPE_LABEL, OVERLAP_LABEL } from './lib/segments.js';
 import { cleanText } from './lib/clean.js';
 import { mountInsights } from './insights/insights.js';
 import { sparkPulse } from './lib/brand.js';
@@ -39,6 +39,7 @@ const els = {
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
 const UNKNOWN = 'Unknown';
 const UNKNOWN_COLOR = '#8a93b9';
+const OVERLAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/></svg>';
 const STEPS = ['decode', 'analyze', 'load', 'speakers', 'run', 'review', 'done'];
 // what the person sees for each stage: a short name and one plain line about what is happening
 const STAGE_LABEL = {
@@ -691,8 +692,8 @@ function groups() {
   const out = [];
   state.lines.forEach((l, i) => {
     const g = out[out.length - 1];
-    if (g && g.speaker === l.speaker) g.idx.push(i);
-    else out.push({ speaker: l.speaker, idx: [i] });
+    if (g && g.speaker === l.speaker && !!g.overlap === !!l.overlap) g.idx.push(i);
+    else out.push({ speaker: l.speaker, overlap: !!l.overlap, idx: [i] });
   });
   return out;
 }
@@ -711,15 +712,16 @@ function renderTranscript() {
   const frag = document.createDocumentFragment();
   state.segEls = new Array(state.lines.length);
   for (const g of groups()) {
-    const s = spk(g.speaker);
+    // overlapping speech: several people at once, kept as heard, credited to no one
+    const s = g.overlap ? { name: OVERLAP_LABEL, color: UNKNOWN_COLOR } : spk(g.speaker);
     const el = document.createElement('div');
-    el.className = 'grp';
+    el.className = g.overlap ? 'grp overlap' : 'grp';
     el.dataset.sp = g.speaker;
     el.style.setProperty('--c', s.color);
     const groupText = g.idx.map((i) => lineText(i)).join(' ');
     el.dir = isRtlText(groupText) ? 'rtl' : 'ltr';
     const first = state.lines[g.idx[0]];
-    el.innerHTML = `<div class="avatar">${esc(initials(s.name))}</div>
+    el.innerHTML = `<div class="avatar">${g.overlap ? OVERLAP_ICON : esc(initials(s.name))}</div>
       <div class="grp-body">
         <div class="grp-head"><button class="who" type="button" title="Change speaker"><span class="who-name">${esc(s.name)}</span>${CHEVRON}</button><button class="grp-time" type="button" title="Play from ${fmtTime(first.start)}">${fmtTime(first.start)}</button></div>
       </div>`;
@@ -784,7 +786,7 @@ function reassignGroup(g, to) {
 
 function reassign(pred, to) {
   if (to === UNKNOWN && !state.speakers.has(UNKNOWN)) state.speakers.set(UNKNOWN, { name: 'Unknown', color: UNKNOWN_COLOR });
-  state.lines.forEach((l, i) => { if (pred(l, i)) l.speaker = to; });
+  state.lines.forEach((l, i) => { if (pred(l, i)) { l.speaker = to; delete l.overlap; } }); // a fix by the user replaces the overlap mark
   const y = window.scrollY;
   renderAll();
   window.scrollTo({ top: y });
@@ -1075,7 +1077,7 @@ function toTxt(view = 'original') {
   const head = `${currentFile?.name || 'Transcript'}\nLength: ${fmtTime(state.duration)} · Speakers: ${names || '—'}\n\n`;
   return head + groups().map((g) => {
     const first = state.lines[g.idx[0]];
-    return `[${fmtTime(first.start)}] ${spk(g.speaker).name}:\n${g.idx.map(text).join(' ')}`;
+    return `[${fmtTime(first.start)}] ${g.overlap ? OVERLAP_LABEL : spk(g.speaker).name}:\n${g.idx.map(text).join(' ')}`;
   }).join('\n\n') + '\n';
 }
 const segmentsPayload = () => toStoredSegments(state.lines, (id) => spk(id).name, (id) => spk(id).orig);
@@ -1106,7 +1108,7 @@ const insights = mountInsights({
     isSignedIn: () => Boolean(isConfigured && session),
     signIn: (mode) => signInToSave(mode),
     saving: () => ['saving', 'pending', 'syncing'].includes(save.status),
-    getSegments: () => (state?.lines || []).map((l, i) => ({ id: i, start: l.start, end: l.end, speaker: spk(l.speaker).name, text: l.text })),
+    getSegments: () => (state?.lines || []).map((l, i) => ({ id: i, start: l.start, end: l.end, speaker: spk(l.speaker).name, text: l.text, ...(l.overlap && { overlap: true }) })),
     seek: (t) => seek(t, true),
     playbackTime: () => (els.player.getAttribute('src') ? els.player.currentTime || 0 : null),
     getRecordingType: () => state?.recordingType || null,

@@ -37,6 +37,8 @@ const NEW_VOICE_COHESION = 0.5; // each of its moments must be this similar (cos
 const NEW_VOICE_RECUR_N = 3; // …or the voice recurs at least this many times
 const NEW_VOICE_RECUR_S = 1.0; // …adding up to at least this much speech
 const NEW_VOICE_RECUR_COHESION = 0.6; // …and its moments agree with each other at least this well
+const NEW_VOICE_RECUR_KNOWN = 0.2; // …and is less similar than this to every known speaker
+const MISSING_SLOT_SIM = 0.3; // with a chosen count and someone missing: a voice less similar than this to every known speaker can be them
 
 // Identity verification (see verifySpeakers): every stretch of speech is re-checked against every speaker's
 // voice, so one person keeps one label from the first minute to the last.
@@ -46,18 +48,51 @@ const VERIFY_MARGIN = 0.12; // another speaker must be this much more similar (c
 const VERIFY_TAKE_SIM = 0.3; // …and at least this similar in absolute terms
 const VERIFY_LOST_SIM = 0.1; // a stretch this unlike its own speaker, and unlike everyone else, becomes Unknown
 const VERIFY_PASSES = 2; // reassign, recompute every speaker's voice, reassign again
+const VERIFY_PAUSE_S = 0.25; // a pause this long inside a run is a natural boundary: each side is checked on its own
+const VERIFY_SHORT_S = 1.5; // pieces shorter than this (down to VERIFY_PIECE_MIN_S) need clearer evidence…
+const VERIFY_PIECE_MIN_S = 1.0;
+const VERIFY_SHORT_MARGIN = 0.2; // …a bigger margin…
+const VERIFY_SHORT_TAKE = 0.4; // …and a higher similarity to move
+
+// Which refinements run (all on in the app; the test runner switches them off one at a time)
+export const FEATURES = { overlap: true, reply: true, segDiff: true, pausePieces: true, subItems: false, unsure: true, mergeSplits: true }; // subItems off: it lost a quiet real person (AMI TS3003a)
+// One person split in two (Auto only): merged when the two voices are this similar, never talk over each other
+// anywhere in the recording, and the smaller one has less than this share of the speech
+const SPLIT_MERGE_SIM = 0.45;
+const SPLIT_MERGE_MAX_SHARE = 0.25;
+// Noise can make a voice unrecognisable, so noisy stretches of one person can turn into a "new" speaker. A small
+// group whose speech is this much noisier (signal-to-noise, dB) than the rest of the recording, and that is almost
+// always surrounded by one speaker it never talks over, is folded back into that speaker.
+const NOISY_DB = 8;
+const NOISY_NEIGHBOUR_SHARE = 0.7;
+const UNSURE_SIM = 0.4; // a stretch whose best voice match is this weak…
+const UNSURE_MARGIN = 0.12; // …and barely ahead of the next person becomes Unknown rather than a guess
+const SUB_GAP_S = 0.5; // a local voice that pauses this long inside a 10 s chunk is fingerprinted per stretch
+
+// Overlapping speech (see diarize)
+const OVERLAP_MIN_S = 1.0; // two voices at once for at least this long = shown as overlapping speech, nobody's
+const REPLY_TAKE_SIM = 0.25; // a short reply over someone joins a known voice only if at least this similar
 
 
 // Models and callbacks from the caller (worker or test runner).
 const env = {
   segModel: null, segProcessor: null, segDevice: null, embModel: null, embProcessor: null, embDevice: null,
   Tensor: null, debugVoices: false, status: () => {}, lap: () => {}, post: () => {},
+  onChunks: null, // test runner only: receives the raw per-chunk segmentation
 };
 export function configureDiarizer(opts) { Object.assign(env, opts); }
 
 // ---------- 1. segmentation ----------
 // Splits combined labels ("SPEAKER_00 + SPEAKER_01") into their parts.
-const parts = (label) => (label === 'NO_SPEAKER' ? [] : label.split(' + '));
+// The segmentation model (pyannote powerset) labels each frame NO_SPEAKER, SPEAKER_n, or SPEAKERS_a_AND_b when two
+// people talk at once. (This used to look for "a + b", which never matched, so overlapping speech was treated as a
+// voice of its own and handed to one person.)
+const parts = (label) => {
+  if (label === 'NO_SPEAKER') return [];
+  const m = /^SPEAKERS_(\d+)_AND_(\d+)$/.exec(label);
+  return m ? [`SPEAKER_${m[1]}`, `SPEAKER_${m[2]}`] : label.split(' + ');
+};
+const isOverlap = (label) => parts(label).length > 1;
 
 async function segmentChunks(audio) {
   const chunkLen = SR * SEG_CHUNK_S;
@@ -96,13 +131,25 @@ function collectVoices(audio, chunks) {
   chunks.forEach((chunk, c) => {
     const byLocal = new Map();
     for (const s of chunk.segs) {
-      if (s.label === 'NO_SPEAKER' || s.label.includes(' + ')) continue; // skip silence and overlap
+      if (s.label === 'NO_SPEAKER' || isOverlap(s.label)) continue; // skip silence and overlap
       if (!byLocal.has(s.label)) byLocal.set(s.label, []);
       byLocal.get(s.label).push(s);
     }
     for (const [local, segs] of byLocal) {
-      const dur = segs.reduce((t, s) => t + (s.end - s.start), 0);
-      items.push({ key: `${c}|${local}`, chunk: c, local, segs, dur, emb: null });
+      // The segmentation can give two people the same local label inside one chunk (a reply, then someone else
+      // continuing). One fingerprint for all of it mixes them, so a local voice is split where it pauses for
+      // SUB_GAP_S: each stretch gets its own fingerprint; stretches too short to fingerprint follow their siblings.
+      const groups = [];
+      for (const x of segs) {
+        const g = groups[groups.length - 1];
+        if (g && (!FEATURES.subItems || x.start - g.at(-1).end < SUB_GAP_S)) g.push(x); else groups.push([x]);
+      }
+      groups.forEach((g, k) => {
+        const key = groups.length === 1 ? `${c}|${local}` : `${c}|${local}|${k}`;
+        for (const x of g) x.key = key;
+        const dur = g.reduce((t, x) => t + (x.end - x.start), 0);
+        items.push({ key, chunk: c, local, segs: g, dur, emb: null, sub: groups.length > 1 });
+      });
     }
   });
   return items;
@@ -300,6 +347,13 @@ function labelVoices(items, numSpeakers) {
   // voice running across the same edge, it is almost certainly the same person mid-sentence.
   const byChunk = new Map();
   for (const it of items) { if (!byChunk.has(it.chunk)) byChunk.set(it.chunk, []); byChunk.get(it.chunk).push(it); }
+  for (const it of items) {
+    if (label.has(it.key) || !it.sub) continue;
+    const votes = new Map();
+    for (const o of byChunk.get(it.chunk)) if (o !== it && o.local === it.local && label.get(o.key) >= 0) votes.set(label.get(o.key), (votes.get(label.get(o.key)) || 0) + o.dur);
+    const top = [...votes].sort((a, b) => b[1] - a[1])[0];
+    if (top) label.set(it.key, top[0]);
+  }
   const EDGE = 0.25;
   for (const it of items) {
     if (label.has(it.key)) continue;
@@ -344,7 +398,7 @@ function labelVoices(items, numSpeakers) {
 // already looked at them.
 async function verifySpeakers(audio, segments) {
   const isReal = (sp) => sp && sp !== UNKNOWN;
-  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const sorted = segments.filter((x) => !x.overlap).sort((a, b) => a.start - b.start);
   // runs of one label, cut into windows of about VERIFY_WIN_S
   const runs = [];
   for (const sg of sorted) {
@@ -353,16 +407,23 @@ async function verifySpeakers(audio, segments) {
     else runs.push({ speaker: sg.speaker, start: sg.start, end: sg.end, segs: [sg] });
   }
   const wins = [];
-  for (const r of runs) {
-    const speech = r.segs.reduce((t, x) => t + (x.end - x.start), 0);
-    if (speech < VERIFY_MIN_S) continue;
-    const k = Math.max(1, Math.round((r.end - r.start) / VERIFY_WIN_S));
-    const step = (r.end - r.start) / k;
-    for (let i = 0; i < k; i++) {
-      const w0 = r.start + i * step, w1 = i === k - 1 ? r.end : r.start + (i + 1) * step;
-      const pieces = r.segs.map((x) => ({ start: Math.max(x.start, w0), end: Math.min(x.end, w1) })).filter((x) => x.end > x.start);
-      const len = pieces.reduce((t, x) => t + (x.end - x.start), 0);
-      if (len >= VERIFY_MIN_S * 0.8) wins.push({ run: r, w0, w1, pieces, len, speaker: r.speaker, from: r.speaker });
+  for (const run of runs) {
+    // natural pieces: a pause of VERIFY_PAUSE_S or more ends a piece ("It's very impressive." | "Very nice machine.")
+    const groups = [];
+    for (const x of run.segs) {
+      const g = groups[groups.length - 1];
+      if (g && (!FEATURES.pausePieces || x.start - g.end < VERIFY_PAUSE_S)) { g.end = Math.max(g.end, x.end); g.segs.push(x); }
+      else groups.push({ start: x.start, end: x.end, segs: [x] });
+    }
+    for (const r of groups) {
+      const k = Math.max(1, Math.round((r.end - r.start) / VERIFY_WIN_S));
+      const step = (r.end - r.start) / k;
+      for (let i = 0; i < k; i++) {
+        const w0 = r.start + i * step, w1 = i === k - 1 ? r.end : r.start + (i + 1) * step;
+        const pieces = r.segs.map((x) => ({ start: Math.max(x.start, w0), end: Math.min(x.end, w1) })).filter((x) => x.end > x.start);
+        const len = pieces.reduce((t, x) => t + (x.end - x.start), 0);
+        if (len >= (FEATURES.pausePieces ? VERIFY_PIECE_MIN_S : VERIFY_MIN_S * 0.8)) wins.push({ run, w0, w1, pieces, len, speaker: run.speaker, from: run.speaker, short: FEATURES.pausePieces && len < VERIFY_SHORT_S });
+      }
     }
   }
   if (!wins.length) return { segments, stats: { windows: 0 } };
@@ -395,7 +456,11 @@ async function verifySpeakers(audio, segments) {
       const own = isReal(w.speaker) ? dot(w.emb, cen.get(w.speaker)) : -1;
       let best = null, bs = -Infinity;
       for (const [k, c] of cen) { const v = dot(w.emb, c); if (v > bs) { bs = v; best = k; } }
-      if (best !== w.speaker && bs >= VERIFY_TAKE_SIM && bs >= own + VERIFY_MARGIN) w.speaker = best;
+      const margin = w.short ? VERIFY_SHORT_MARGIN : VERIFY_MARGIN, take = w.short ? VERIFY_SHORT_TAKE : VERIFY_TAKE_SIM;
+      let second = -Infinity;
+      for (const [k, c] of cen) if (k !== best) second = Math.max(second, dot(w.emb, c));
+      if (FEATURES.unsure && pass === VERIFY_PASSES - 1 && bs < UNSURE_SIM && bs - second < UNSURE_MARGIN) w.speaker = UNKNOWN; // too close to call
+      else if (best !== w.speaker && bs >= take && bs >= own + margin) w.speaker = best;
       else if (isReal(w.speaker) && own < VERIFY_LOST_SIM && bs < VERIFY_TAKE_SIM) w.speaker = UNKNOWN;
     }
   }
@@ -433,8 +498,10 @@ async function verifySpeakers(audio, segments) {
 // neighbours: a moment sandwiched inside one person's speech stays with that person unless its voice
 // clearly matches someone else. A different voice that recurs (e.g. "yeah", "right" from a listener)
 // is kept as its own speaker, so genuine interjections survive.
-async function smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpeech) {
+async function smoothSpeakers(audio, allSegments, centroids, numSpeakers, totalSpeech) {
   const isReal = (s) => s && s !== UNKNOWN;
+  // overlapping speech is left as it is: it belongs to nobody in particular
+  const segments = allSegments.filter((s) => !s.overlap);
   const sorted = [...segments].sort((a, b) => a.start - b.start);
   const runs = [];
   for (const s of sorted) {
@@ -452,9 +519,15 @@ async function smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpee
     const prev = near(runs[i - 1], r) ? runs[i - 1] : null;
     const next = near(runs[i + 1], r) ? runs[i + 1] : null;
     const sandwich = prev && next && isReal(prev.speaker) && prev.speaker === next.speaker && prev.speaker !== r.speaker ? prev.speaker : null;
-    if (r.speaker === UNKNOWN ? dur <= SMOOTH_MAX_UNKNOWN_S : sandwich && dur <= SMOOTH_MAX_S) cands.push({ r, prev, next, sandwich, dur });
+    // the segmentation itself heard a different voice here: inside the same 10 s chunk, this run's local voice
+    // differs from the neighbouring run's (a reply, not just a pitch change of the same local voice)
+    const edge = (a, b) => a && b && a.chunk != null && a.chunk === b.chunk && a.local && b.local && a.local !== b.local;
+    const segDiff = r.segs.every((x) => x.local) && (edge(prev?.segs.at(-1), r.segs[0]) || edge(r.segs.at(-1), next?.segs[0]));
+    // a short reply said over someone: never give it back to the person talking through it
+    const replyOver = r.segs.find((x) => x.replyOver)?.replyOver || null;
+    if (r.speaker === UNKNOWN ? dur <= SMOOTH_MAX_UNKNOWN_S : sandwich && dur <= SMOOTH_MAX_S) cands.push({ r, prev, next, sandwich, dur, segDiff, replyOver });
   });
-  if (!cands.length) return { segments, stats: { candidates: 0, reassigned: 0, newSpeakers: 0 } };
+  if (!cands.length) return { segments: allSegments, stats: { candidates: 0, reassigned: 0, newSpeakers: 0 } };
 
   const withEmb = cands.filter((c) => c.dur >= SMOOTH_EMB_MIN_S);
   const embs = await embedClips(audio, withEmb.map((c) => c.r.segs));
@@ -470,7 +543,7 @@ async function smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpee
     }
     return [spk, s];
   };
-  const fallback = (c) => c.sandwich || nearestNeighbour(c);
+  const fallback = (c) => (c.noAbsorb ? UNKNOWN : c.sandwich || nearestNeighbour(c));
   function nearestNeighbour(c) {
     const opts = [c.prev, c.next].filter((x) => x && isReal(x.speaker));
     if (!opts.length) return null;
@@ -482,6 +555,27 @@ async function smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpee
   const pending = [];
   const assign = (c, spk) => { if (spk && spk !== c.r.speaker) { c.r.speaker = spk; reassigned++; } };
   for (const c of cands) {
+    if (c.replyOver) {
+      // a reply over someone: the best other voice if it is similar enough, else Unknown (never the speaker it interrupts)
+      if (isReal(c.r.speaker) && c.r.speaker !== c.replyOver) continue;
+      const [other, s2] = c.emb ? bestKnown(c.emb, c.replyOver) : [null, -1];
+      assign(c, other && s2 >= REPLY_TAKE_SIM ? other : UNKNOWN);
+      continue;
+    }
+    if (c.sandwich && c.segDiff && FEATURES.segDiff) {
+      // The segmentation heard a different voice. Keep it apart unless the voice clearly is the surrounding
+      // speaker (one person's pitch change can still be split by the segmentation); if unsure, Unknown.
+      if (!c.emb) continue;
+      const simS = sim(c.emb, c.sandwich);
+      const own = isReal(c.r.speaker) ? sim(c.emb, c.r.speaker) : -1;
+      if (isReal(c.r.speaker) && own >= simS - 0.05) continue;
+      const [other, simO] = bestKnown(c.emb, c.sandwich);
+      if (other && simO >= ASSIGN_SIM && simO >= simS - 0.05) { assign(c, other); continue; }
+      if (simS >= Math.max(0.35, own + SMOOTH_MARGIN)) { assign(c, c.sandwich); continue; }
+      c.noAbsorb = true; // the segmentation heard someone else: never fall back to the surrounding speaker
+      pending.push(c); // a voice nobody matches: may be a new / missing person (decided below), else Unknown
+      continue;
+    }
     if (c.sandwich) {
       if (!c.emb) { assign(c, c.sandwich); continue; } // too short to judge: context wins
       const simS = sim(c.emb, c.sandwich);
@@ -525,16 +619,17 @@ async function smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpee
       const knownSim = Math.max(-1, ...[...centroids.values()].map((k) => dot(cen, k)));
       const total = g.reduce((t, c) => t + c.dur, 0);
       groupLog.push({ n: g.length, total: +total.toFixed(2), cohesion: +cohesion.toFixed(3), knownSim: +knownSim.toFixed(3) });
-      return { g, total, cohesion, strong: cohesion >= NEW_VOICE_COHESION && knownSim < OTHER_VOICE_SIM };
+      return { g, total, cohesion, knownSim, strong: cohesion >= NEW_VOICE_COHESION && knownSim < OTHER_VOICE_SIM };
     });
   }
   let newSpeakers = 0;
   if (pending.length) {
     if (!numSpeakers) {
-      for (const { g, total, cohesion, strong } of voiceGroups(pending)) {
-        // a substantial new voice, or a short one that keeps coming back (e.g. a listener's "yeah", "right")
-        const recurring = g.length >= NEW_VOICE_RECUR_N && total >= NEW_VOICE_RECUR_S && cohesion >= NEW_VOICE_RECUR_COHESION;
-        if (strong && g.length >= 2 && (total >= newVoiceMinS || recurring)) {
+      for (const { g, total, cohesion, knownSim, strong } of voiceGroups(pending)) {
+        // a substantial new voice, or a short one that keeps coming back (e.g. a listener's "yeah", "right"): coming
+        // back with the same voice is evidence of its own, so that case may be a little closer to a known voice
+        const recurring = g.length >= NEW_VOICE_RECUR_N && total >= NEW_VOICE_RECUR_S && cohesion >= NEW_VOICE_RECUR_COHESION && knownSim < NEW_VOICE_RECUR_KNOWN;
+        if ((strong || recurring) && g.length >= 2 && (total >= newVoiceMinS || recurring)) {
           const name = `SPEAKER_N${newSpeakers++}`;
           for (const c of g) assign(c, name);
         } else {
@@ -546,30 +641,32 @@ async function smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpee
       // matches nobody becomes one of the missing speakers; otherwise it joins the closest known person.
       let room = Math.max(0, numSpeakers - centroids.size);
       const groups = voiceGroups(pending).sort((a, b) => b.total - a.total);
-      for (const { g, total, strong } of groups) {
-        // the user said more people are present, so a coherent unfamiliar voice may fill a missing slot
-        if (room > 0 && strong && (g.length >= 2 || total >= CORROBORATE_MIN_S)) {
+      for (const { g, total, strong, cohesion, knownSim } of groups) {
+        // the user said more people are present, so a coherent unfamiliar voice may fill a missing slot (a bit
+        // less strict than Auto: the voice must agree with itself and clearly not be anyone already known)
+        if (room > 0 && (strong || (cohesion >= NEW_VOICE_RECUR_COHESION && knownSim < MISSING_SLOT_SIM)) && (g.length >= 2 || total >= CORROBORATE_MIN_S)) {
           const name = `SPEAKER_N${newSpeakers++}`;
           room--;
           for (const c of g) assign(c, name);
           continue;
         }
         for (const c of g) {
-          const [spk, s] = bestKnown(c.emb, null);
-          assign(c, spk && s >= OTHER_VOICE_SIM ? spk : c.dur < CORROBORATE_MIN_S ? fallback(c) : spk || UNKNOWN);
+          const [spk, s] = bestKnown(c.emb, c.noAbsorb ? c.sandwich : null);
+          assign(c, spk && s >= OTHER_VOICE_SIM ? spk : c.dur < CORROBORATE_MIN_S ? fallback(c) : c.noAbsorb ? UNKNOWN : spk || UNKNOWN);
         }
       }
     }
   }
 
   for (const r of runs) for (const s of r.segs) s.speaker = r.speaker;
-  return { segments, stats: { candidates: cands.length, reassigned, newSpeakers, pending: pending.length, groups: groupLog.slice(0, 20) } };
+  return { segments: allSegments, stats: { candidates: cands.length, reassigned, newSpeakers, pending: pending.length, groups: groupLog.slice(0, 20) } };
 }
 
 export async function diarize(audio, numSpeakers) {
   env.status('Finding speech…');
   const chunks = await segmentChunks(audio);
   env.lap('segmentation');
+  env.onChunks?.(chunks);
 
   // speech the segmentation model didn't attribute (≥ 1 s of clearly loud audio) — may be a laugh,
   // a missed word or noise; it enters smoothing as Unknown instead of being dropped
@@ -598,22 +695,120 @@ export async function diarize(audio, numSpeakers) {
   env.lap('clustering');
 
   const segments = [];
+  const overlapPairs = new Set(); // pairs of speakers heard talking at the same time somewhere: certainly two people
+  const stretches = new Map(); // `${chunk}|${local}` -> [{ key, start, end }]
+  for (const it of items) { const k = `${it.chunk}|${it.local}`; (stretches.get(k) || stretches.set(k, []).get(k)).push({ key: it.key, start: it.segs[0].start, end: it.segs.at(-1).end }); }
+  const nameAt = (c, local, t) => {
+    if (names.has(`${c}|${local}`)) return names.get(`${c}|${local}`);
+    const list = stretches.get(`${c}|${local}`) || [];
+    let best = null, bd = Infinity;
+    for (const x of list) { const d = Math.max(0, x.start - t, t - x.end); if (d < bd) { bd = d; best = x; } }
+    return best ? names.get(best.key) ?? UNKNOWN : UNKNOWN;
+  };
   chunks.forEach((chunk, c) => {
-    for (const s of chunk.segs) {
-      const local = parts(s.label)[0];
-      if (!local) continue;
-      segments.push({ start: s.start, end: s.end, speaker: names.get(`${c}|${local}`) ?? UNKNOWN });
-    }
+    const segs = chunk.segs;
+    segs.forEach((s, i) => {
+      const ps = parts(s.label);
+      if (!ps.length) return;
+      if (ps.length === 1) { segments.push({ start: s.start, end: s.end, speaker: (s.key && names.get(s.key)) ?? nameAt(c, ps[0], s.start), chunk: c, local: ps[0] }); return; }
+      // two voices at once
+      const mid = (s.start + s.end) / 2;
+      const g = ps.map((p) => nameAt(c, p, mid));
+      if (g[0] !== UNKNOWN && g[1] !== UNKNOWN && g[0] !== g[1]) overlapPairs.add([...g].sort().join('|'));
+      if (g[0] !== UNKNOWN && g[0] === g[1]) { segments.push({ start: s.start, end: s.end, speaker: g[0], chunk: c, local: ps[0] }); return; }
+      if (FEATURES.overlap && s.end - s.start >= OVERLAP_MIN_S) { segments.push({ start: s.start, end: s.end, speaker: UNKNOWN, overlap: true, chunk: c }); return; }
+      // Short: either a quick reply over someone who keeps talking ("of course", "yeah"), or the hand-over
+      // between two people. The voice heard on both sides is the one talking through it; the other voice is
+      // the reply. At a hand-over, the person who continues afterwards takes it.
+      const single = (j) => { const x = segs[j]; return x && !isOverlap(x.label) && x.label !== 'NO_SPEAKER' && Math.abs((j < i ? s.start - x.end : x.start - s.end)) < 0.5 ? x.label : null; };
+      const before = single(i - 1), after = single(i + 1);
+      const main = before && before === after && ps.includes(before) ? before : null;
+      if (main && FEATURES.reply) {
+        const reply = ps.find((p) => p !== main);
+        segments.push({ start: s.start, end: s.end, speaker: nameAt(c, reply, mid), chunk: c, local: reply, replyOver: nameAt(c, main, mid) });
+      } else {
+        const next = after && ps.includes(after) ? after : ps[0];
+        segments.push({ start: s.start, end: s.end, speaker: nameAt(c, next, mid), chunk: c, local: next });
+      }
+    });
   });
+  // One person split in two by a change in how they sound (much higher or lower, noise, another microphone): in
+  // Auto, the two groups are merged only with strong evidence on both counts: their voices are similar AND they
+  // never talk at the same time (one person can't overlap with themselves; two people in a conversation do).
+  // With a chosen count nothing is merged here: the N biggest groups are already the people.
+  let mergedSplits = 0;
+  if (FEATURES.mergeSplits && !numSpeakers && centroids.size > 1) {
+    const talk = new Map();
+    for (const x of segments) if (!x.overlap && x.speaker !== UNKNOWN) talk.set(x.speaker, (talk.get(x.speaker) || 0) + x.end - x.start);
+    const total = [...talk.values()].reduce((a, b) => a + b, 0) || 1;
+    for (;;) {
+      let best = null;
+      for (const [a, ca] of centroids) for (const [b, cb] of centroids) {
+        if (a >= b) continue;
+        const sim = dot(ca, cb);
+        if (sim < SPLIT_MERGE_SIM || overlapPairs.has([a, b].sort().join('|'))) continue;
+        const small = (talk.get(a) || 0) <= (talk.get(b) || 0) ? a : b, big = small === a ? b : a;
+        if ((talk.get(small) || 0) / total >= SPLIT_MERGE_MAX_SHARE) continue;
+        if (!best || sim > best.sim) best = { sim, small, big };
+      }
+      if (!best) break;
+      for (const x of segments) { if (x.speaker === best.small) x.speaker = best.big; if (x.replyOver === best.small) x.replyOver = best.big; }
+      const wb = talk.get(best.big) || 1, ws = talk.get(best.small) || 1, cb = centroids.get(best.big), cs = centroids.get(best.small);
+      centroids.set(best.big, normalize(cb.map((v, i) => v * wb + cs[i] * ws)));
+      centroids.delete(best.small); talk.set(best.big, wb + ws); talk.delete(best.small);
+      mergedSplits++;
+    }
+  }
   for (const f of fills) segments.push({ ...f, speaker: UNKNOWN, fill: true });
 
   env.status('Checking speaker changes…');
   const totalSpeech = segments.reduce((t, s) => t + (s.speaker === UNKNOWN ? 0 : s.end - s.start), 0);
   const smoothed = await smoothSpeakers(audio, segments, centroids, numSpeakers, totalSpeech);
   env.lap(`smoothing ${JSON.stringify(smoothed.stats)}`);
+  if (FEATURES.mergeSplits && !numSpeakers) mergedSplits += foldNoisyGroups(smoothed.segments, rms, overlapPairs);
   const verified = await verifySpeakers(audio, smoothed.segments);
   env.lap(`verification ${JSON.stringify(verified.stats)}`);
-  return { segments: verified.segments, stats: { ...smoothed.stats, verify: verified.stats } };
+  return { segments: verified.segments, stats: { ...smoothed.stats, verify: verified.stats, mergedSplits } };
+}
+
+// ---------- 3d. noisy splits ----------
+// Signal-to-noise of a stretch from its own 100 ms frames: loud frames (speech) against the quiet frames between
+// words (in a quiet room near silence, under background noise not). Returns the median over a speaker's stretches.
+function foldNoisyGroups(segments, rms, overlapPairs) {
+  const real = (x) => !x.overlap && x.speaker !== UNKNOWN;
+  const runs = [];
+  for (const x of [...segments].filter(real).sort((a, b) => a.start - b.start)) {
+    const l = runs[runs.length - 1];
+    if (l && l.speaker === x.speaker && x.start - l.end < 0.5) l.end = Math.max(l.end, x.end); else runs.push({ speaker: x.speaker, start: x.start, end: x.end });
+  }
+  const snr = (r) => {
+    const f = []; for (let i = Math.floor(r.start * 10); i < Math.min(rms.length, Math.ceil(r.end * 10)); i++) f.push(rms[i]);
+    if (f.length < 15) return null;
+    f.sort((a, b) => a - b);
+    return 20 * Math.log10((f[Math.floor(f.length * 0.9)] + 1e-6) / (f[Math.floor(f.length * 0.1)] + 1e-6));
+  };
+  const med = (a) => { const v = a.filter((x) => x != null).sort((p, q) => p - q); return v.length ? v[Math.floor(v.length / 2)] : null; };
+  const talk = new Map(); for (const r of runs) talk.set(r.speaker, (talk.get(r.speaker) || 0) + r.end - r.start);
+  const total = [...talk.values()].reduce((a, b) => a + b, 0) || 1;
+  let folded = 0;
+  for (const [g, t] of [...talk].sort((a, b) => a[1] - b[1])) {
+    if (t / total >= SPLIT_MERGE_MAX_SHARE) continue;
+    const mine = med(runs.filter((r) => r.speaker === g).map(snr)), rest = med(runs.filter((r) => r.speaker !== g).map(snr));
+    if (mine == null || rest == null || rest - mine < NOISY_DB) continue;
+    // who is around it
+    const around = new Map(); let n = 0;
+    runs.forEach((r, i) => {
+      if (r.speaker !== g) return;
+      for (const o of [runs[i - 1], runs[i + 1]]) if (o && o.speaker !== g && Math.max(o.start - r.end, r.start - o.end) < 2) { around.set(o.speaker, (around.get(o.speaker) || 0) + 1); n++; }
+    });
+    const [x, c] = [...around].sort((a, b) => b[1] - a[1])[0] || [];
+    if (!x || c / n < NOISY_NEIGHBOUR_SHARE || overlapPairs.has([g, x].sort().join('|'))) continue;
+    for (const s of segments) if (s.speaker === g) s.speaker = x;
+    for (const r of runs) if (r.speaker === g) r.speaker = x;
+    talk.set(x, (talk.get(x) || 0) + t); talk.delete(g);
+    folded++;
+  }
+  return folded;
 }
 
 // RMS energy in 100 ms frames; used to find speech the speaker model missed and to pick quiet cut points.

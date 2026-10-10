@@ -3248,3 +3248,9 @@ html.bg-paused .bg *, html.bg-paused .bg { animation-play-state: paused !importa
   .dz-orbit span:nth-child(1) { transform: scale(.36); } .dz-orbit span:nth-child(2) { transform: scale(.58); } .dz-orbit span:nth-child(3) { transform: scale(.82); opacity: .1; }
 }
 :root[data-theme="light"] .segctl [aria-checked="true"] { color: #0b1030; }
+
+/* overlapping speech: several people at once; quieter, dashed, credited to no one */
+.grp.overlap .avatar { display: grid; place-items: center; background: none; border: 1px dashed color-mix(in srgb, var(--ink-3) 60%, transparent); color: var(--ink-3); }
+.grp.overlap .avatar svg { width: 18px; height: 18px; }
+.grp.overlap .who-name { font-style: italic; color: var(--ink-3); }
+.grp.overlap .seg { color: var(--ink-2); }

@@ -46,31 +46,41 @@ const T = await import('@huggingface/transformers');
 const { analyzeAudio, preprocess } = await import(pathToFileURL(resolve(ROOT, 'src/engine/preprocess.js')).href);
 // --module lets an experiment run a modified copy of the diarization code against the same scoring
 const D = await import(pathToFileURL(resolve(opt('--module') || resolve(ROOT, 'src/engine/diarize.js'))).href);
+if (opt('--rescore') && !D.UNKNOWN) throw new Error('bad module');
+// --features overlap=0,segDiff=0 … switches refinements off (ablation)
+for (const kv of (opt('--features') || '').split(',').filter(Boolean)) { const [k, v] = kv.split('='); if (D.FEATURES && k in D.FEATURES) D.FEATURES[k] = v !== '0'; }
 const SEG_MODEL = 'onnx-community/pyannote-segmentation-3.0';
 const EMB_MODEL = 'onnx-community/wespeaker-voxceleb-resnet34-LM';
 
 const t0 = performance.now();
-const audio = await decode(resolve(file));
-const quality = analyzeAudio(audio);
-preprocess(audio, quality);
-const segProcessor = await T.AutoProcessor.from_pretrained(SEG_MODEL);
-const segModel = await T.AutoModelForAudioFrameClassification.from_pretrained(SEG_MODEL, { device: 'cpu', dtype: 'fp32' });
-const embProcessor = await T.AutoProcessor.from_pretrained(EMB_MODEL);
-const embModel = await T.AutoModel.from_pretrained(EMB_MODEL, { device: 'cpu', dtype: 'fp32' });
-const timings = [];
-D.configureDiarizer({
-  segModel, segProcessor, segDevice: 'cpu', embModel, embProcessor, embDevice: 'cpu', Tensor: T.Tensor,
-  status: () => {}, lap: (l) => timings.push(l), post: () => {},
-});
-const { segments, stats } = await D.diarize(audio, numSpeakers);
-const dur = audio.length / D.SR;
+// --rescore old.json: score a saved run again (new metrics) without running speaker detection
+const saved = opt('--rescore') ? JSON.parse(readFileSync(opt('--rescore'), 'utf8')) : null;
+let audio = null, segments, stats, dur;
+if (saved) ({ segments, smoothing: stats, duration: dur } = saved);
+else {
+  audio = await decode(resolve(file));
+  const quality = analyzeAudio(audio);
+  preprocess(audio, quality);
+  const segProcessor = await T.AutoProcessor.from_pretrained(SEG_MODEL);
+  const segModel = await T.AutoModelForAudioFrameClassification.from_pretrained(SEG_MODEL, { device: 'cpu', dtype: 'fp32' });
+  const embProcessor = await T.AutoProcessor.from_pretrained(EMB_MODEL);
+  const embModel = await T.AutoModel.from_pretrained(EMB_MODEL, { device: 'cpu', dtype: 'fp32' });
+  const timings = [];
+  D.configureDiarizer({
+    segModel, segProcessor, segDevice: 'cpu', embModel, embProcessor, embDevice: 'cpu', Tensor: T.Tensor,
+    status: () => {}, lap: (l) => timings.push(l), post: () => {},
+  });
+  ({ segments, stats } = await D.diarize(audio, numSpeakers));
+  dur = audio.length / D.SR;
+}
 const elapsed = (performance.now() - t0) / 1000;
 
 // ---------- helpers ----------
 const FR = 0.01; // 10 ms frames
 const nF = Math.ceil(dur / FR);
 const hypFrames = Array.from({ length: nF }, () => new Set());
-for (const s of segments) for (let f = Math.floor(s.start / FR); f < Math.min(nF, Math.ceil(s.end / FR)); f++) hypFrames[f].add(s.speaker);
+// a segment marked as overlapping speech adds OVERLAP (several people, not attributed to one)
+for (const s of segments) for (let f = Math.floor(s.start / FR); f < Math.min(nF, Math.ceil(s.end / FR)); f++) hypFrames[f].add(s.overlap ? 'OVERLAP' : s.speaker);
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const hypRuns = (() => {
   const runs = [];
@@ -81,7 +91,7 @@ const hypRuns = (() => {
   }
   return runs;
 })();
-const labels = [...new Set(segments.map((s) => s.speaker))].filter((l) => l !== D.UNKNOWN);
+const labels = [...new Set(segments.filter((s) => !s.overlap).map((s) => s.speaker))].filter((l) => l !== D.UNKNOWN);
 const talk = (l) => hypFrames.reduce((t, f) => t + (f.has(l) ? FR : 0), 0);
 const report = { label, file: basename(file), duration: +dur.toFixed(1), chosenSpeakers: numSpeakers || 'auto', elapsedS: +elapsed.toFixed(1),
   detectedSpeakers: labels.length, speakerTime: Object.fromEntries(labels.map((l) => [l, +talk(l).toFixed(1)])),
@@ -170,11 +180,12 @@ if (rttmPath) {
     speakerChanges: { reference: refChanges.length, detected: hypChanges.length,
       missed: refChanges.filter((c) => !near(c, hypChanges)).length, false: hypChanges.filter((c) => !near(c, refChanges)).length },
     swapExamples: changes.slice(0, 12),
+    ...extraMetrics(ref, refFrames, refSpk, bestMap),
   });
 } else {
   // ---------- no reference: timeline + voice consistency ----------
   const runs = hypRuns.filter((r) => r.speaker !== D.UNKNOWN && r.end - r.start >= 2);
-  const embs = await D.embedClips(audio, runs.map((r) => [{ start: r.start, end: r.end }]));
+  const embs = audio ? await D.embedClips(audio, runs.map((r) => [{ start: r.start, end: r.end }])) : runs.map(() => new Float32Array(256)); // rescored runs skip the voice check
   const cent = new Map();
   runs.forEach((r, i) => { const c = cent.get(r.speaker) || new Float32Array(embs[i].length); for (let d = 0; d < c.length; d++) c[d] += embs[i][d] * (r.end - r.start); cent.set(r.speaker, c); });
   for (const [k, c] of cent) { let n = 0; for (const v of c) n += v * v; n = Math.sqrt(n) || 1; cent.set(k, c.map((v) => v / n)); }
@@ -195,6 +206,73 @@ if (rttmPath) {
   Object.assign(report, { turnsChecked: runs.length, turnsSoundingLikeAnotherSpeaker: suspicious.length,
     suspiciousTurns: suspicious.slice(0, 40), perMinute,
     runs: hypRuns.map((r) => `${fmt(r.start)}-${fmt(r.end)} ${r.speaker}`) });
+}
+
+// ---------- short replies, false splits, overlap, extra speakers, merges ----------
+function extraMetrics(ref, refFrames, refSpk, map) {
+  const refTurns = [];
+  for (const r of [...ref].sort((a, b) => a.start - b.start)) {
+    const last = refTurns.findLast((t) => t.speaker === r.speaker);
+    if (last && r.start - last.end < 0.3) last.end = Math.max(last.end, r.end); else refTurns.push({ ...r });
+  }
+  // short replies: a turn of at most 2 s with someone else speaking within 1 s (backchannels, interruptions)
+  const shorts = refTurns.filter((r) => r.end - r.start <= 2 && refTurns.some((o) => o.speaker !== r.speaker && o.start < r.end + 1 && o.end > r.start - 1));
+  // standalone = said in its own moment; saidOver = entirely while someone else keeps talking (a backchannel)
+  const out = { own: 0, overlap: 0, absorbed: 0, unknown: 0, missed: 0, other: 0 };
+  const stand = { total: 0, own: 0, overlap: 0, absorbed: 0, unknown: 0, missed: 0, other: 0 }, over = { total: 0, own: 0, overlap: 0, absorbed: 0, unknown: 0, missed: 0, other: 0 };
+  for (const r of shorts) {
+    const said = ref.some((o) => o.speaker !== r.speaker && o.start <= r.start && o.end >= r.end) ? over : stand;
+    said.total++;
+    const tally = (k) => { out[k]++; said[k]++; };
+    let n = 0, own = 0, ov = 0, unk = 0, none = 0; const others = new Map();
+    for (let f = Math.floor(r.start / FR); f < Math.min(nF, Math.ceil(r.end / FR)); f++) {
+      n++;
+      const h = hypFrames[f];
+      if (!h.size) { none++; continue; }
+      if ([...h].some((x) => map.get(x) === r.speaker)) own++;
+      else if (h.has('OVERLAP')) ov++;
+      else if ([...h].every((x) => x === D.UNKNOWN)) unk++;
+      else for (const x of h) if (x !== D.UNKNOWN) others.set(x, (others.get(x) || 0) + 1);
+    }
+    if (own / n >= 0.4) tally('own');
+    else if (ov / n >= 0.4) tally('overlap');
+    else if (none / n >= 0.6) tally('missed');
+    else if (unk / n >= 0.4) tally('unknown');
+    else {
+      const [x] = [...others].sort((a, b) => b[1] - a[1])[0] || [];
+      const nearby = x && refTurns.some((o) => o.speaker === map.get(x) && o.start < r.end + 1 && o.end > r.start - 1);
+      tally(nearby ? 'absorbed' : 'other');
+    }
+  }
+  // false splits: short hyp runs given to a person who is not speaking there at all
+  let falseSplits = 0, falseSplitS = 0;
+  for (const run of hypRuns) {
+    if (run.speaker === D.UNKNOWN || run.end - run.start > 2 || !map.has(run.speaker)) continue;
+    let n = 0, his = 0;
+    for (let f = Math.floor(run.start / FR); f < Math.min(nF, Math.ceil(run.end / FR)); f++) { if (!refFrames[f].size) continue; n++; if (refFrames[f].has(map.get(run.speaker))) his++; }
+    if (n >= 20 && his / n < 0.2) { falseSplits++; falseSplitS += run.end - run.start; }
+  }
+  // overlap: frames marked as overlapping speech vs frames where the reference has 2+ people
+  let hypOv = 0, hit = 0, refOv = 0;
+  for (let f = 0; f < nF; f++) {
+    const r2 = refFrames[f].size > 1;
+    if (r2) refOv++;
+    if (hypFrames[f].has('OVERLAP')) { hypOv++; if (r2) hit++; }
+  }
+  // extra speakers: labels with real speech that map to nobody; merges: one label carrying 2+ people
+  const extra = labels.filter((l) => !map.has(l) && talk(l) >= 5).length;
+  let merges = 0;
+  for (const l of labels) {
+    const people = refSpk.filter((r) => {
+      let tot = 0, under = 0;
+      for (let f = 0; f < nF; f++) { if (refFrames[f].size !== 1 || !refFrames[f].has(r)) continue; tot++; if (hypFrames[f].has(l)) under++; }
+      return tot && under / tot >= 0.25;
+    });
+    if (people.length >= 2) merges++;
+  }
+  return { shortReplies: { total: shorts.length, ...out }, standaloneReplies: stand, saidOverReplies: over, falseSplits, falseSplitS: +falseSplitS.toFixed(1),
+    overlap: { refS: +(refOv * FR).toFixed(1), markedS: +(hypOv * FR).toFixed(1), precision: hypOv ? +(hit / hypOv).toFixed(2) : null, recall: refOv ? +(hit / refOv).toFixed(2) : null },
+    falseExtraSpeakers: extra, falseMerges: merges };
 }
 
 if (!quiet) {

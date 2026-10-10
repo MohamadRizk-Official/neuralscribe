@@ -4,6 +4,7 @@
 //
 // Stored in transcriptions.segments as [{ s, e, sp, t, o? }] (compact keys): o is the speaker label the line was
 // first transcribed with ("Speaker 1"), kept when the speaker is renamed so AI results written with the old
+// (ov: 1 marks overlapping speech: several people at once, sp stays "Unknown")
 // label can show the new name (lib/speaker-names.js). Older saved transcripts have no segments; for those the
 // paragraphs of transcript_text are used, with a timestamp per paragraph only.
 
@@ -20,12 +21,12 @@ const round2 = (x) => Math.round(x * 100) / 100;
 export function toStoredSegments(lines, nameOf, origOf) {
   return lines.map((l) => {
     const sp = nameOf(l.speaker), o = origOf?.(l.speaker);
-    return { s: round2(l.start), e: round2(l.end), sp, t: l.text, ...(o && o !== sp && { o }) };
+    return { s: round2(l.start), e: round2(l.end), sp, t: l.text, ...(o && o !== sp && { o }), ...(l.overlap && { ov: 1 }) };
   });
 }
 // Saved-page segments -> stored form (keeps each line's original label)
 export function segmentsToStored(segments) {
-  return segments.map((x) => ({ s: round2(x.start), e: round2(x.end), sp: x.speaker, t: x.text, ...(x.orig && x.orig !== x.speaker && { o: x.orig }) }));
+  return segments.map((x) => ({ s: round2(x.start), e: round2(x.end), sp: x.speaker, t: x.text, ...(x.orig && x.orig !== x.speaker && { o: x.orig }), ...(x.overlap && { ov: 1 }) }));
 }
 
 export function parseClock(str) {
@@ -58,7 +59,7 @@ export function segmentsFromRow(row) {
   if (Array.isArray(row?.segments) && row.segments.length) {
     const segments = row.segments
       .filter((x) => x && typeof x.t === 'string')
-      .map((x, id) => ({ id, start: Number(x.s) || 0, end: Number(x.e) || Number(x.s) || 0, speaker: String(x.sp || 'Unknown'), text: x.t.trim(), orig: x.o ? String(x.o) : String(x.sp || 'Unknown') }));
+      .map((x, id) => ({ id, start: Number(x.s) || 0, end: Number(x.e) || Number(x.s) || 0, speaker: String(x.sp || 'Unknown'), text: x.t.trim(), orig: x.o ? String(x.o) : String(x.sp || 'Unknown'), ...(x.ov && { overlap: true }) }));
     return { segments, coarse: false };
   }
   const paras = paragraphsFromText(row?.transcript_text);
@@ -69,7 +70,9 @@ export function segmentsFromRow(row) {
 }
 
 // Line format given to the model: "[12] 3:41 Speaker 1: text". The id in brackets is what it cites.
-export const modelLine = (s) => `[${s.id}] ${fmtClock(s.start)} ${s.speaker}: ${s.text}`;
+// several people at once: the words are kept, but no one person is credited with them
+export const OVERLAP_LABEL = 'Overlapping speech';
+export const modelLine = (s) => `[${s.id}] ${fmtClock(s.start)} ${s.overlap ? 'Several people (overlapping speech)' : s.speaker}: ${s.text}`;
 
 // Rough token estimate (no tokenizer in the browser/edge). Errs high on purpose: ~3.2 chars per token.
 export const estimateTokens = (text) => Math.ceil(String(text).length / 3.2);

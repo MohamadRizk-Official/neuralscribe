@@ -709,8 +709,9 @@ export function mountInsights({ tabBar, transcriptEls, host, ctx }) {
       for (const s of segs) {
         const last = out[out.length - 1];
         const text = clean ? cleanText(s.text) : s.text;
-        if (last && last.speaker === s.speaker) last.text += ' ' + text;
-        else out.push({ speaker: s.speaker, start: s.start, text });
+        const who = s.overlap ? 'Overlapping speech' : s.speaker;
+        if (last && last.speaker === who) last.text += ' ' + text;
+        else out.push({ speaker: who, start: s.start, text });
       }
       return out.flatMap((g) => [{ t: 'h', text: `[${fmtClock(g.start)}] ${g.speaker}` }, { t: 'p', text: g.text }]);
     };

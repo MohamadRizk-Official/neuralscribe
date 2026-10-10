@@ -247,8 +247,9 @@ function buildTurns(audio, segments) {
   const merged = [];
   for (const it of items) {
     const last = merged[merged.length - 1];
-    if (last && last.speaker === it.speaker && !!last.fill === !!it.fill && it.start - last.end <= MERGE_GAP_S) last.end = Math.max(last.end, it.end);
-    else merged.push({ ...it, fill: !!it.fill });
+    // overlapping speech (several people at once) stays its own clip too, never merged into a speaker's turn
+    if (last && last.speaker === it.speaker && !!last.fill === !!it.fill && !!last.overlap === !!it.overlap && it.start - last.end <= MERGE_GAP_S) last.end = Math.max(last.end, it.end);
+    else merged.push({ ...it, fill: !!it.fill, overlap: !!it.overlap });
   }
 
   const turns = [];
@@ -593,6 +594,7 @@ self.addEventListener('message', async (e) => {
         start: t.start,
         end: t.end,
         speaker: t.speaker,
+        ...(t.overlap && { overlap: true }), // several people at once: shown as overlapping speech
         text: r.text,
         language: 'en',
         // Whisper's own signals, after any retry: low confidence, or a runaway repetition that was cut.

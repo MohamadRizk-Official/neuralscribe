@@ -221,3 +221,48 @@ const E = voice('IS1009a', [...turnsOf('IS1009a').keys()][0]), F = voice('TS3003
   }
   save(build('noise-and-distance', s), 0.012);
 }
+
+// ---- harder one-person checks: the same person must stay one speaker ----
+// turned away from the mic: duller and quieter, a little room sound, no change of voice
+function turned(x) {
+  const y = new Float32Array(x.length + SR / 4); let lp = 0;
+  for (let i = 0; i < x.length; i++) { lp += 0.5 * (x[i] - lp); y[i] += lp * 0.6; }
+  const o = Math.floor(0.031 * SR); for (let i = 0; i < x.length; i++) y[i + o] += y[i] * 0.25;
+  return y;
+}
+const withNoise = (x, level) => { const n = noiseBed(x.length, level); return x.map((v, i) => v + n[i]); };
+// one man (B): close, then moving away (far) for the middle third, back close at the end; a few turned-away turns
+{
+  const s = [];
+  for (let i = 0; i < 45; i++) {
+    let a = take(B, 3, 12);
+    if (i >= 15 && i < 30) a = far(a);
+    if (i % 6 === 2) a = turned(a);
+    s.push({ who: 'B', audio: a, after: rnd() < 0.15 ? 4 + rnd() * 4 : 0.4 + rnd() * 0.8 });
+  }
+  save(build('one-speaker-distance', s));
+}
+// one woman (C): quiet room, then a noisy café stretch (noise only while she talks there), loud and soft turns
+{
+  const s = [];
+  for (let i = 0; i < 45; i++) {
+    let a = take(C, 3, 12);
+    if (i >= 15 && i < 32) a = withNoise(a, 0.02 + rnd() * 0.02);
+    if (i % 4 === 1) a = gain(a, 7); else if (i % 4 === 3) a = gain(a, -10);
+    s.push({ who: 'C', audio: a, after: 0.4 + rnd() * 0.9 });
+  }
+  save(build('one-speaker-noise-volume', s));
+}
+// one person (A) with everything at once: pitch up/down, far, turned, noise, volume
+{
+  const s = [];
+  for (let i = 0; i < 45; i++) {
+    let a = take(A, 3, 12);
+    const k = i % 9;
+    if (k === 1) a = pitch(a, 3); else if (k === 3) a = pitch(a, -3); else if (k === 5) a = far(a); else if (k === 6) a = turned(a);
+    if (k === 7) a = withNoise(a, 0.03);
+    if (k === 8) a = gain(a, -12);
+    s.push({ who: 'A', audio: a, after: 0.4 + rnd() * 0.9 });
+  }
+  save(build('one-speaker-everything', s));
+}

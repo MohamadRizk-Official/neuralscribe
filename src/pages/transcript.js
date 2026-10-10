@@ -8,7 +8,7 @@ import { getTranscript, updateRecordingType, updateTranscriptText, fmtDuration, 
 import { nameMapFromSegments } from '../lib/speaker-names.js';
 import { renameTranscript, setFavorite, deleteTranscripts, markOpened, getRecordingMeta, listFolders } from '../lib/library.js';
 import { promptDialog, confirmDialog, confirmDeleteRecordings, folderPicker, toast } from '../library/dialogs.js';
-import { segmentsFromRow, segmentsToStored, fmtClock, RECORDING_TYPES, RECORDING_TYPE_LABEL } from '../lib/segments.js';
+import { segmentsFromRow, segmentsToStored, fmtClock, RECORDING_TYPES, RECORDING_TYPE_LABEL, OVERLAP_LABEL } from '../lib/segments.js';
 import { toggleDetails } from '../lib/details-pop.js';
 import { relatedMaterialHtml, bindRelatedMaterial } from '../lib/related-material.js';
 import { cleanText } from '../lib/clean.js';
@@ -17,6 +17,7 @@ import { mountInsights } from '../insights/insights.js';
 const $ = (id) => document.getElementById(id);
 const COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#a3e635', '#fbbf24', '#fb7185', '#34d399', '#60a5fa', '#fb923c', '#e879f9'];
 const UNKNOWN_COLOR = '#8a93b9';
+const OVERLAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/></svg>';
 const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const RTL_LANGS = new Set(['ar', 'fa', 'ur', 'he', 'yi', 'ps', 'sd', 'ug']);
 const params = new URLSearchParams(location.search);
@@ -110,14 +111,14 @@ function initials(name) {
     const groups = [];
     for (const s of segments) {
       const g = groups[groups.length - 1];
-      if (g && g.speaker === s.speaker) g.items.push(s);
-      else groups.push({ speaker: s.speaker, items: [s] });
+      if (g && g.speaker === s.speaker && !!g.overlap === !!s.overlap) g.items.push(s);
+      else groups.push({ speaker: s.speaker, overlap: !!s.overlap, items: [s] });
     }
     $('transcript').innerHTML = groups.map((g) => `
-      <div class="grp" style="--c:${colorOf.get(g.speaker)}"${rtl ? ' dir="rtl"' : ''}>
-        <div class="avatar">${esc(initials(g.speaker))}</div>
+      <div class="grp${g.overlap ? ' overlap' : ''}" style="--c:${g.overlap ? UNKNOWN_COLOR : colorOf.get(g.speaker)}"${rtl ? ' dir="rtl"' : ''}>
+        <div class="avatar">${g.overlap ? OVERLAP_ICON : esc(initials(g.speaker))}</div>
         <div class="grp-body">
-          <div class="grp-head">${coarse ? `<span class="who static">${esc(g.speaker)}</span>` : `<button class="who" type="button" data-g="${g.items[0].id}" aria-haspopup="menu" title="Change or rename this speaker"><span class="who-name">${esc(g.speaker)}</span>${CHEVRON}</button>`}<span class="grp-time">${fmtClock(g.items[0].start)}</span></div>
+          <div class="grp-head">${coarse ? `<span class="who static">${esc(g.speaker)}</span>` : `<button class="who" type="button" data-g="${g.items[0].id}" aria-haspopup="menu" title="Change or rename this speaker"><span class="who-name">${esc(g.overlap ? OVERLAP_LABEL : g.speaker)}</span>${CHEVRON}</button>`}<span class="grp-time">${fmtClock(g.items[0].start)}</span></div>
           ${g.items.map((s) => `<p class="seg${player.getAttribute('src') ? '' : ' static'}" data-i="${s.id}" title="${fmtClock(s.start)}">${esc(text(s))}</p>`).join('')}
         </div>
       </div>`).join('');
@@ -238,7 +239,7 @@ function initials(name) {
   const askName = (title, value) => promptDialog({ title, label: 'Name', value, submit: (v) => v.trim().slice(0, 60) });
   function move(group, to) {
     if (!colorOf.has(to)) colorOf.set(to, to === 'Unknown' ? UNKNOWN_COLOR : nextColor());
-    for (const s of group) { s.orig ??= s.speaker; s.speaker = to; }
+    for (const s of group) { s.orig ??= s.speaker; s.speaker = to; delete s.overlap; }
     afterSpeakerChange(`Moved to ${to}`);
   }
   function rename(from, to) {
@@ -260,8 +261,9 @@ function initials(name) {
     const paras = [];
     for (const s of segments) {
       const last = paras[paras.length - 1];
-      if (last && last.speaker === s.speaker) last.text += ' ' + s.text;
-      else paras.push({ speaker: s.speaker, start: s.start, text: s.text });
+      const who = s.overlap ? OVERLAP_LABEL : s.speaker;
+      if (last && last.speaker === who) last.text += ' ' + s.text;
+      else paras.push({ speaker: who, start: s.start, text: s.text });
     }
     const text = `${head}\n\n${paras.map((g) => `[${fmtClock(g.start)}] ${g.speaker}:\n${g.text}`).join('\n\n')}\n`;
     try {
@@ -316,8 +318,9 @@ function initials(name) {
     const out = [];
     for (const s of segments) {
       const last = out[out.length - 1];
-      if (last && last.speaker === s.speaker) last.text += ' ' + cleanText(s.text);
-      else out.push({ speaker: s.speaker, start: s.start, text: cleanText(s.text) });
+      const who = s.overlap ? OVERLAP_LABEL : s.speaker;
+      if (last && last.speaker === who) last.text += ' ' + cleanText(s.text);
+      else out.push({ speaker: who, start: s.start, text: cleanText(s.text) });
     }
     const head = row.transcript_text.split(/\r?\n\r?\n/)[0];
     return `${head}\n\n${out.map((g) => `[${fmtClock(g.start)}] ${g.speaker}:\n${g.text}`).join('\n\n')}\n`;
