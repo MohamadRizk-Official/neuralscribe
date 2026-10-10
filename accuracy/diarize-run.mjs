@@ -2,7 +2,7 @@
 // stop, and a saved result after every recording. A rerun skips every result already saved for the same speaker
 // code, so an interrupted run resumes where it stopped.
 //
-//   node accuracy/diarize-run.mjs <out-dir> [--only name,name] [--threads 8] [--max-rss-mb 6000] [--min-free-mb 4000]
+//   node accuracy/diarize-run.mjs <out-dir> [--only name,name] [--cores 8] [--max-rss-mb 6000] [--min-free-mb 4000]
 //                                           [--timeout-min 20] [--list]
 //
 // Names are "<recording>-auto" or "<recording>-n<count>" (see JOBS). Results: <out-dir>/<name>-v3.json, one line per
@@ -19,7 +19,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (k, d = null) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const OUT = resolve(args[0] || '');
-const THREADS = Number(opt('--threads', 8));
+// Hard CPU cap: the run is pinned to this many logical CPUs (the highest-numbered ones, leaving CPU 0 free). A
+// per-model thread setting alone is not enough: the speaker code runs several model calls at once, each with its
+// own threads.
+const THREADS = Math.max(1, Math.min(os.cpus().length - 1, Number(opt('--cores', 8))));
+const AFFINITY = ((1n << BigInt(THREADS)) - 1n) << BigInt(os.cpus().length - THREADS);
 const MAX_RSS_MB = Number(opt('--max-rss-mb', 6000));
 const MIN_FREE_MB = Number(opt('--min-free-mb', 4000));
 const TIMEOUT_MS = Number(opt('--timeout-min', 20)) * 60e3;
@@ -78,6 +82,11 @@ function runOne(job, out) {
     const t0 = Date.now();
     const child = spawn(process.execPath, argv, { cwd: ROOT, env: { ...process.env, DIAR_THREADS: String(THREADS), DIAR_OFFLINE: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
     try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* best effort */ }
+    if (process.platform === 'win32') {
+      try {
+        execFileSync('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${child.pid}).ProcessorAffinity = ${AFFINITY}`], { stdio: 'ignore' });
+      } catch { child.kill(); done({ job: job.name, ok: false, error: 'could not apply the CPU cap', stopSuite: true }); return; }
+    }
     let err = '', stop = null, peak = 0, machine = [], last = cpuTimes();
     child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
     const watch = setInterval(() => {
@@ -103,7 +112,7 @@ function runOne(job, out) {
   });
 }
 
-console.log(`speaker code ${commit} (${engineHash.slice(0, 12)}), ${THREADS} threads, below-normal priority, stop at ${MAX_RSS_MB} MB per run or < ${MIN_FREE_MB} MB free`);
+console.log(`speaker code ${commit} (${engineHash.slice(0, 12)}), capped at ${THREADS} of ${os.cpus().length} CPUs, below-normal priority, stop at ${MAX_RSS_MB} MB per run or < ${MIN_FREE_MB} MB free`);
 let k = 0;
 for (const job of jobs) {
   k++;
